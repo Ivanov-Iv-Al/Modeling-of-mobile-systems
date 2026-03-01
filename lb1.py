@@ -122,6 +122,43 @@ class HammingCoder:
         return ''.join(decoded)
 
 
+class Interleaver:
+    def __init__(self, seed=42):
+        self.seed = seed
+        self.permutation = None
+    
+    def interleave(self, bits):
+        if not bits:
+            return bits
+        
+        np.random.seed(self.seed)
+        n = len(bits)
+        self.permutation = np.random.permutation(n)
+        
+        interleaved = ['0'] * n
+        for i, pos in enumerate(self.permutation):
+            interleaved[pos] = bits[i]
+        
+        return ''.join(interleaved)
+
+
+class Deinterleaver:
+    def __init__(self, interleaver):
+        self.permutation = interleaver.permutation
+    
+    def deinterleave(self, bits):
+        if not bits or self.permutation is None:
+            return bits
+        
+        n = len(bits)
+        deinterleaved = ['0'] * n
+        
+        for i, pos in enumerate(self.permutation):
+            deinterleaved[i] = bits[pos]
+        
+        return ''.join(deinterleaved)
+
+
 def main():
     msg = "Hello World. This is test message and no more"
     print(f"Исходное: {msg}\n")
@@ -136,8 +173,12 @@ def main():
     hamming_encoded = HammingCoder.encode(encoded)
     print(f"После Хэмминга: {len(hamming_encoded)} бит")
     
+    interleaver = Interleaver(seed=42)
+    interleaved = interleaver.interleave(hamming_encoded)
+    print(f"После перемежения: {len(interleaved)} бит")
+    
     np.random.seed(42)
-    received = list(hamming_encoded)
+    received = list(interleaved)
     errors = 0
     for i in range(len(received)):
         if np.random.random() < 0.05:
@@ -146,7 +187,10 @@ def main():
     
     print(f"Ошибок в канале: {errors}")
     
-    hamming_decoded = HammingCoder.decode(''.join(received))
+    deinterleaver = Deinterleaver(interleaver)
+    deinterleaved = deinterleaver.deinterleave(''.join(received))
+    
+    hamming_decoded = HammingCoder.decode(deinterleaved)
     if not hamming_decoded:
         print("Ошибка декодирования")
         return
