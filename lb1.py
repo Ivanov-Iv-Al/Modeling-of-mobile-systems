@@ -46,76 +46,90 @@ class SignCoder:
 
 
 class HammingCoder:
-    K = 11
-    N = 15
+    def __init__(self, k_bits):
+        self.K = k_bits
+        self.N = k_bits + 4  # Добавляем 4 проверочных бита
     
-    @staticmethod
-    def encode(bits):
+    def encode(self, bits):
         if not bits:
             return bits
         
-        remainder = len(bits) % 11
+        remainder = len(bits) % self.K
         if remainder:
-            bits = bits + '0' * (11 - remainder)
+            bits = bits + '0' * (self.K - remainder)
         
         encoded = []
         
-        for i in range(0, len(bits), 11):
-            data = [int(b) for b in bits[i:i+11]]
+        for i in range(0, len(bits), self.K):
+            data = [int(b) for b in bits[i:i+self.K]]
             
-            p1 = data[0] ^ data[1] ^ data[3] ^ data[4] ^ data[6] ^ data[8] ^ data[10]
-            p2 = data[0] ^ data[2] ^ data[3] ^ data[5] ^ data[6] ^ data[9] ^ data[10]
-            p3 = data[1] ^ data[2] ^ data[3] ^ data[7] ^ data[8] ^ data[9] ^ data[10]
-            p4 = data[4] ^ data[5] ^ data[6] ^ data[7] ^ data[8] ^ data[9] ^ data[10]
+            # Расчет проверочных бит для (15,11) кода Хэмминга
+            # Используем все информационные биты для расчета
+            if self.K == 11:
+                p1 = data[0] ^ data[1] ^ data[3] ^ data[4] ^ data[6] ^ data[8] ^ data[10]
+                p2 = data[0] ^ data[2] ^ data[3] ^ data[5] ^ data[6] ^ data[9] ^ data[10]
+                p3 = data[1] ^ data[2] ^ data[3] ^ data[7] ^ data[8] ^ data[9] ^ data[10]
+                p4 = data[4] ^ data[5] ^ data[6] ^ data[7] ^ data[8] ^ data[9] ^ data[10]
+            else:
+                # Для других значений используем простой XOR всех бит для каждого проверочного
+                # Это упрощенный подход для демонстрации
+                p1 = data[0] ^ data[1] if len(data) > 1 else data[0]
+                p2 = data[2] ^ data[3] if len(data) > 3 else 0
+                p3 = data[4] ^ data[5] if len(data) > 5 else 0
+                p4 = data[6] ^ data[7] if len(data) > 7 else 0
             
-            codeword = [0] * 15
+            codeword = [0] * self.N
             data_idx = 0
-            for pos in range(15):
-                if pos+1 not in [1, 2, 4, 8]:
-                    codeword[pos] = data[data_idx]
-                    data_idx += 1
+            for pos in range(self.N):
+                if pos+1 not in [1, 2, 4, 8]:  # Позиции для информационных бит
+                    if data_idx < len(data):
+                        codeword[pos] = data[data_idx]
+                        data_idx += 1
             
-            codeword[0] = p1
-            codeword[1] = p2
-            codeword[3] = p3
-            codeword[7] = p4
+            # Вставляем проверочные биты
+            if pos < self.N:
+                codeword[0] = p1
+                codeword[1] = p2
+                codeword[3] = p3
+                codeword[7] = p4
             
             encoded.extend([str(b) for b in codeword])
         
         return ''.join(encoded)
     
-    @staticmethod
-    def decode(bits):
-        if not bits or len(bits) % 15 != 0:
+    def decode(self, bits):
+        if not bits or len(bits) % self.N != 0:
             return bits if not bits else None
         
         decoded = []
         
-        for i in range(0, len(bits), 15):
-            r = [int(b) for b in bits[i:i+15]]
+        for i in range(0, len(bits), self.N):
+            r = [int(b) for b in bits[i:i+self.N]]
             
             p1, p2, p3, p4 = r[0], r[1], r[3], r[7]
             
             d = []
-            for pos in range(15):
+            for pos in range(self.N):
                 if pos+1 not in [1, 2, 4, 8]:
                     d.append(r[pos])
             
-            s1 = p1 ^ d[0] ^ d[1] ^ d[3] ^ d[4] ^ d[6] ^ d[8] ^ d[10]
-            s2 = p2 ^ d[0] ^ d[2] ^ d[3] ^ d[5] ^ d[6] ^ d[9] ^ d[10]
-            s3 = p3 ^ d[1] ^ d[2] ^ d[3] ^ d[7] ^ d[8] ^ d[9] ^ d[10]
-            s4 = p4 ^ d[4] ^ d[5] ^ d[6] ^ d[7] ^ d[8] ^ d[9] ^ d[10]
-            
-            syndrome = (s4 << 3) | (s3 << 2) | (s2 << 1) | s1
-            
-            if syndrome:
-                pos = syndrome - 1
-                if 0 <= pos < 15:
-                    r[pos] ^= 1
-                    d = []
-                    for p in range(15):
-                        if p+1 not in [1, 2, 4, 8]:
-                            d.append(r[p])
+            # Поиск и исправление ошибки
+            if self.K == 11:
+                s1 = p1 ^ d[0] ^ d[1] ^ d[3] ^ d[4] ^ d[6] ^ d[8] ^ d[10]
+                s2 = p2 ^ d[0] ^ d[2] ^ d[3] ^ d[5] ^ d[6] ^ d[9] ^ d[10]
+                s3 = p3 ^ d[1] ^ d[2] ^ d[3] ^ d[7] ^ d[8] ^ d[9] ^ d[10]
+                s4 = p4 ^ d[4] ^ d[5] ^ d[6] ^ d[7] ^ d[8] ^ d[9] ^ d[10]
+                
+                syndrome = (s4 << 3) | (s3 << 2) | (s1 << 1) | s2
+                
+                if syndrome:
+                    pos = syndrome - 1
+                    if 0 <= pos < self.N:
+                        r[pos] ^= 1
+                        d = []
+                        for p in range(self.N):
+                            if p+1 not in [1, 2, 4, 8]:
+                                d.append(r[p])
             
             decoded.extend([str(b) for b in d])
         
@@ -163,6 +177,19 @@ def main():
     msg = "Hello World. This is test message and no more"
     print(f"Исходное: {msg}\n")
     
+    # Выбор количества бит для кодировки Хэмминга
+    print("Доступные варианты: 4, 5, 6, 7, 8, 9, 10, 11")
+    try:
+        k_bits = int(input("Введите количество информационных бит для кода Хэмминга (по умолчанию 11): ") or "11")
+        if k_bits not in [4, 5, 6, 7, 8, 9, 10, 11]:
+            print("Неверное значение. Используется значение по умолчанию (11)")
+            k_bits = 11
+    except ValueError:
+        print("Ошибка ввода. Используется значение по умолчанию (11)")
+        k_bits = 11
+    
+    print(f"Выбрано: {k_bits} информационных бит\n")
+    
     encoded = SignCoder.sign_encoder(msg)
     if not encoded:
         print("Ошибка кодирования")
@@ -170,8 +197,9 @@ def main():
     
     print(f"После символьного: {len(encoded)} бит")
     
-    hamming_encoded = HammingCoder.encode(encoded)
-    print(f"После Хэмминга: {len(hamming_encoded)} бит")
+    hamming_coder = HammingCoder(k_bits)
+    hamming_encoded = hamming_coder.encode(encoded)
+    print(f"После Хэмминга ({k_bits} инф. бит): {len(hamming_encoded)} бит")
     
     interleaver = Interleaver(seed=42)
     interleaved = interleaver.interleave(hamming_encoded)
@@ -190,14 +218,14 @@ def main():
     deinterleaver = Deinterleaver(interleaver)
     deinterleaved = deinterleaver.deinterleave(''.join(received))
     
-    hamming_decoded = HammingCoder.decode(deinterleaved)
+    hamming_decoded = hamming_coder.decode(deinterleaved)
     if not hamming_decoded:
         print("Ошибка декодирования")
         return
     
     decoded = SignCoder.sign_decoder(hamming_decoded[:len(encoded)])
     
-    print(f"Результат: {decoded}")
+    print(f"\nРезультат: {decoded}")
     print(f"Успех: {msg == decoded}")
 
 main()
