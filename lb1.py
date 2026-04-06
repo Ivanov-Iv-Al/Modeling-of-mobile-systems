@@ -1,7 +1,7 @@
 import numpy as np
 
 class SignCoder:
-    BITS = 6
+    BITS = 8
 
     def sign_encoder(text):
         if not text or len(text) < 30 or len(text) > 100:
@@ -22,26 +22,25 @@ class SignCoder:
             else:
                 return None
 
-            bits.append(format(code, '06b'))
+            bits.append(format(code, '08b'))
 
         return ''.join(bits)
 
     def sign_decoder(bits):
-        if not bits or len(bits) % 6 != 0:
+        if not bits or len(bits) % 8 != 0:
             return None
 
         text = []
         chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
 
-        for i in range(0, len(bits), 6):
-            code = int(bits[i:i + 6], 2)
+        for i in range(0, len(bits), 8):
+            code = int(bits[i:i + 8], 2)
             if code < 64:
                 text.append(chars[code])
             else:
                 return None
 
         return ''.join(text)
-
 
 class HammingCoder:
     def __init__(self, k_bits):
@@ -185,8 +184,9 @@ def add_channel_noise(symbols, noise_level=0.1):
     return noisy_symbols
 
 def main():
-    msg = "Hello World. This is test message and no more"
+    msg = "Hello World. This is test message and no more..."
     print(f"Исходное сообщение: {msg}\n")
+    print(f"Исходное сообщение(длительность): {len(msg)}\n")
 
     try:
         user_input = input("Введите количество информационных бит: ")
@@ -194,8 +194,6 @@ def main():
 
     except ValueError:
         print("Ошибка ввода.")
-
-    print(f"Выбрано: {k_bits} информационных бит\n")
 
     encoded = SignCoder.sign_encoder(msg)
     if not encoded:
