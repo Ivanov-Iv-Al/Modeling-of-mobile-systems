@@ -186,7 +186,7 @@ def add_channel_noise(symbols, noise_level=0.1):
 def main():
     msg = "Hello World. This is test message and no more..."
     print(f"Исходное сообщение: {msg}\n")
-    print(f"Исходное сообщение(длительность): {len(msg)}\n")
+    print(f"Исходное сообщение(длительность): {len(msg) * 8}\n")
 
     try:
         user_input = input("Введите количество информационных бит: ")
@@ -213,16 +213,19 @@ def main():
     interleaver = Interleaver(seed=42)
     interleaved = interleaver.interleave(hamming_encoded)
     print(f"\nПеремежение:")
+
     print(f"  После перемежения: {len(interleaved)} бит")
-    print(f"  Первые 30 бит: {interleaved[:30]}...")
+    print(f"  Первые 10 бит: {interleaved[:10]}")
+    print(f"  Первые 10 бит до перемежения: {hamming_encoded[:10]}")
 
     print(f"\nQPSK модуляция:")
     print(f"  До модуляции: {len(interleaved)} бит")
     modulated_symbols = Modulator.modulate(interleaved)
     print(f"  После модуляции: {len(modulated_symbols)} символов")
-    print(f"  Первые 3 символа:")
-    for i, sym in enumerate(modulated_symbols[:3]):
+    print(f"  Первые 6 символов:")
+    for i, sym in enumerate(modulated_symbols[:6]):
         print(f"    Символ {i + 1}: I={sym.real:.3f}, Q={sym.imag:.3f}j")
+        print(f" Битовое представление символа: {interleaved[i:i+2]}")
 
     # print(f"\nКанал связи (добавление шума):")
     # np.random.seed(42)
@@ -239,7 +242,7 @@ def main():
     print(f"  Первые 30 бит: {demodulated_bits[:30]}...")
 
     correct = sum(1 for i in range(len(interleaved)) if interleaved[i] == demodulated_bits[i])
-    print(f"  Совпадение бит: {correct}/{len(interleaved)} ({correct / len(interleaved) * 100:.1f}%)")
+    print(f"  Совпадение бит: {correct}/{len(interleaved)} ")
 
     deinterleaver = Deinterleaver(interleaver)
     deinterleaved = deinterleaver.deinterleave(demodulated_bits)
