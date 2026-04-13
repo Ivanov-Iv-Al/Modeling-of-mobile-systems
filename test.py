@@ -1,40 +1,245 @@
-      code = ord(c) - ord('0') + 52
+import numpy as np
+
+class SignCoder:
+    BITS = 6
+    
+    @staticmethod
+    def sign_encoder(text):
+        if not text or len(text) < 30 or len(text) > 100:
+            return None
+        
+        bits = []
+        for c in text:
+            if 'A' <= c <= 'Z':
+                code = ord(c) - ord('A')
+            elif 'a' <= c <= 'z':
+                code = ord(c) - ord('a') + 26
+            elif '0' <= c <= '9':
+                code = ord(c) - ord('0') + 52
             elif c == ' ':
                 code = 62
             elif c == '.':
                 code = 63
             else:
                 return None
-            
             bits.append(format(code, '06b'))
-        
         return ''.join(bits)
     
     @staticmethod
     def sign_decoder(bits):
         if not bits or len(bits) % 6 != 0:
             return None
-        
-        text = []
         chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
-        
+        text = []
         for i in range(0, len(bits), 6):
             code = int(bits[i:i+6], 2)
             if code < 64:
                 text.append(chars[code])
             else:
                 return None
-        
         return ''.join(text)
 
 
 class HammingCoder:
-    def __init__(self, k_bits):
-        self.K = k_bits
-        self.R = self.calculate_redundant_bits(k_bits)
-        self.N = k_bits + self.R
+    def __init__(self, data_len=8):
+        self.data_len = data_len
+        self.check_positions = [1, 2, 4, 8]
+        self.total_len = data_len + len(self.check_positions)
+    
+    def encode(self, bits):
+        if not bits:
+            return bits
         
-    def calculate_redundant_bits(self, k):
+        # Дополняем нулями
+        if len(bits) % self.data_len:
+            bits += '0' * (self.data_len - len(bits) % self.data_len)
+        
+        result = []
+        for i in range(0, len(bits), self.data_len):
+            block = bits[i:i+self.data_len]
+            result.append(self._encode_block(block))
+        return ''.join(result)
+    
+    def _encode_block(self, block):
+        # Вставляем пустые контрольные биты
+        code = ['0'] * self.total_len
+        data_idx = 0
+        for pos in range(self.total_len):
+            if pos + 1 not in self.check_positions:
+                code[pos] = block[data_idx]
+                data_idx += 1
+        
+        # Рассчитываем контрольные биты
+        for check_pos in self.check_positions:
+            xor_sum = 0
+            # Проверяем все биты, которые влияют на этот контрольный
+            for bit_pos in range(self.total_len):
+                if bit_pos + 1 != check_pos and (bit_pos + 1) & check_pos:
+                    xor_sum ^= int(code[bit_pos])
+            code[check_pos - 1] = str(xor_sum)
+        
+        return ''.join(code)
+    
+    def decode(self, bits, fix_errors=True):
+        if not bits or len(bits) % self.total_len != 0:
+            return bits if not bits else None
+        
+        result = []
+        for i in range(0, len(bits), self.total_len):
+            block = bits[i:i+self.total_len]
+            if fix_errors:
+                block = self._fix_errors(block)
+            # Удаляем контрольные биты
+            clean = ''.join([block[p] for p in range(self.total_len) if p + 1 not in self.check_positions])
+            result.append(clean)
+        return ''.join(result)
+    
+    def _fix_errors(self, block):
+        # Вычисляем позицию ошибки
+        error_pos = 0
+        for check_pos in self.check_positions:
+            xor_sum = 0
+            for bit_pos in range(self.total_len):
+                if bit_pos + 1 != check_pos and (bit_pos + 1) & check_pos:
+                    xor_sum ^= int(block[bit_pos])
+            if xor_sum != int(block[check_pos - 1]):
+                error_pos += check_pos
+        
+        # Исправляем ошибку если она есть
+        if error_pos > 0 and error_pos <= self.total_len:
+            bit = block[error_pos - 1]
+            block = block[:error_pos - 1] + str(1 - int(bit)) + block[error_pos:]
+        return block
+
+
+class Modulator:
+    @staticmethod
+    def modulate(bits):
+        if not bits:
+            return []
+        if len(bits) % 2:
+            bits += '0'
+        
+        symbols = []
+        for i in range(0, len(bits), 2):
+            pair = bits[i:i+2]
+            if pair == '00':
+                symbols.append(complex(0.707, 0.707))
+            elif pair == '01':
+                symbols.append(complex(0.707, -0.707))
+            elif pair == '10':
+                symbols.append(complex(-0.707, 0.707))
+            else:
+                symbols.append(complex(-0.707, -0.707))
+        return symbols
+
+
+class Demodulator:
+    @staticmethod
+    def demodulate(symbols):
+        if not symbols:
+            return ""
+        bits = []
+        for s in symbols:
+            if s.real > 0 and s.imag > 0:
+                bits.append('00')
+            elif s.real > 0 and s.imag < 0:
+                bits.append('01')
+            elif s.real < 0 and s.imag > 0:
+                bits.append('10')
+            else:
+                bits.append('11')
+        return ''.join(bits)
+
+
+class Interleaver:
+    def __init__(self, seed=42):
+        self.seed = seed
+        self.permutation = None
+    
+    def interleave(self, bits):
+        if not bits:
+            return bits
+        np.random.seed(self.seed)
+        self.permutation = np.random.permutation(len(bits))
+        return ''.join(bits[self.permutation[i]] for i in range(len(bits)))
+    
+    def deinterleave(self, bits):
+        if not bits or self.permutation is None:
+            return bits
+        result = [''] * len(bits)
+        for i, pos in enumerate(self.permutation):
+            result[pos] = bits[i]
+        return ''.join(result)
+
+
+def add_noise(symbols, level=0.2):
+    return [complex(s.real + np.random.normal(0, level), 
+                    s.imag + np.random.normal(0, level)) for s in symbols]
+
+
+def main():
+    msg = "Hello World. This is test message and no more"
+    print(f"Сообщение: {msg}\n")
+    
+    # Выбираем длину блока Хэмминга
+    try:
+        data_len = int(input("Длина блока (8,16,32): ") or "8")
+        if data_len not in [8,16,32]:
+            data_len = 8
+    except:
+        data_len = 8
+    
+    hamming = HammingCoder(data_len)
+    print(f"Блок: {data_len} бит, Проверочных: 4, Всего: {data_len+4}\n")
+    
+    # Кодируем
+    encoded = SignCoder.sign_encoder(msg)
+    print(f"1. Символьное кодирование: {len(encoded)} бит")
+    
+    hamming_encoded = hamming.encode(encoded)
+    print(f"2. Код Хэмминга: {len(hamming_encoded)} бит")
+    
+    interleaver = Interleaver(42)
+    interleaved = interleaver.interleave(hamming_encoded)
+    print(f"3. Перемежение: {len(interleaved)} бит")
+    
+    # QPSK
+    symbols = Modulator.modulate(interleaved)
+    print(f"4. QPSK модуляция: {len(symbols)} символов")
+    
+    noisy = add_noise(symbols, 0.2)
+    print(f"5. Добавлен шум")
+    
+    demod_bits = Demodulator.demodulate(noisy)
+    print(f"6. QPSK демодуляция: {len(demod_bits)} бит")
+    
+    # Проверка качества
+    correct = sum(a == b for a, b in zip(interleaved, demod_bits))
+    print(f"   Качество: {correct}/{len(interleaved)} ({correct/len(interleaved)*100:.1f}%)")
+    
+    # Обратные операции
+    deinterleaved = interleaver.deinterleave(demod_bits)
+    print(f"7. Деинтерливинг")
+    
+    hamming_decoded = hamming.decode(deinterleaved, fix_errors=True)
+    print(f"8. Декодирование Хэмминга")
+    
+    decoded = SignCoder.sign_decoder(hamming_decoded[:len(encoded)])
+    print(f"9. Результат: {decoded}")
+    print(f"   Успех: {msg == decoded}")
+    
+    # Краткое объяснение
+    print("\n" + "="*50)
+    print("КАК РАБОТАЕТ КОД ХЭММИНГА:")
+    print("="*50)
+    print(f"• Блок данных: {data_len} бит")
+    print(f"• Контрольные биты на позициях: 1,2,4,8")
+    print("• При ошибке сумма позиций несовпавших контрольных бит = позиция ошибки")
+    print("• Может исправить 1 ошибку в блоке")
+
+if __name__ == "__main__":
+    main()    def calculate_redundant_bits(self, k):
         r = 1
         while (2**r) < (k + r + 1):
             r += 1
