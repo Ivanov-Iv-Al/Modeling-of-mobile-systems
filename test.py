@@ -1,13 +1,12 @@
 import numpy as np
 
 class SignCoder:
-    BITS = 6
-    
-    @staticmethod
+    BITS = 8
+
     def sign_encoder(text):
         if not text or len(text) < 30 or len(text) > 100:
             return None
-        
+
         bits = []
         for c in text:
             if 'A' <= c <= 'Z':
@@ -22,133 +21,121 @@ class SignCoder:
                 code = 63
             else:
                 return None
-            bits.append(format(code, '06b'))
+
+            bits.append(format(code, '08b'))
+
         return ''.join(bits)
-    
-    @staticmethod
+
     def sign_decoder(bits):
-        if not bits or len(bits) % 6 != 0:
+        if not bits or len(bits) % 8 != 0:
             return None
-        chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
+
         text = []
-        for i in range(0, len(bits), 6):
-            code = int(bits[i:i+6], 2)
+        chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
+
+        for i in range(0, len(bits), 8):
+            code = int(bits[i:i + 8], 2)
             if code < 64:
                 text.append(chars[code])
             else:
                 return None
+
         return ''.join(text)
 
-
 class HammingCoder:
-    def __init__(self, data_len=8):
-        self.data_len = data_len
-        self.check_positions = [1, 2, 4, 8]
-        self.total_len = data_len + len(self.check_positions)
-    
-    def encode(self, bits):
-        if not bits:
-            return bits
-        
-        # Дополняем нулями
-        if len(bits) % self.data_len:
-            bits += '0' * (self.data_len - len(bits) % self.data_len)
-        
-        result = []
-        for i in range(0, len(bits), self.data_len):
-            block = bits[i:i+self.data_len]
-            result.append(self._encode_block(block))
-        return ''.join(result)
-    
-    def _encode_block(self, block):
-        # Вставляем пустые контрольные биты
-        code = ['0'] * self.total_len
-        data_idx = 0
-        for pos in range(self.total_len):
-            if pos + 1 not in self.check_positions:
-                code[pos] = block[data_idx]
-                data_idx += 1
-        
-        # Рассчитываем контрольные биты
-        for check_pos in self.check_positions:
-            xor_sum = 0
-            # Проверяем все биты, которые влияют на этот контрольный
-            for bit_pos in range(self.total_len):
-                if bit_pos + 1 != check_pos and (bit_pos + 1) & check_pos:
-                    xor_sum ^= int(code[bit_pos])
-            code[check_pos - 1] = str(xor_sum)
-        
-        return ''.join(code)
-    
-    def decode(self, bits, fix_errors=True):
-        if not bits or len(bits) % self.total_len != 0:
-            return bits if not bits else None
-        
-        result = []
-        for i in range(0, len(bits), self.total_len):
-            block = bits[i:i+self.total_len]
-            if fix_errors:
-                block = self._fix_errors(block)
-            # Удаляем контрольные биты
-            clean = ''.join([block[p] for p in range(self.total_len) if p + 1 not in self.check_positions])
-            result.append(clean)
-        return ''.join(result)
-    
-    def _fix_errors(self, block):
-        # Вычисляем позицию ошибки
-        error_pos = 0
-        for check_pos in self.check_positions:
-            xor_sum = 0
-            for bit_pos in range(self.total_len):
-                if bit_pos + 1 != check_pos and (bit_pos + 1) & check_pos:
-                    xor_sum ^= int(block[bit_pos])
-            if xor_sum != int(block[check_pos - 1]):
-                error_pos += check_pos
-        
-        # Исправляем ошибку если она есть
-        if error_pos > 0 and error_pos <= self.total_len:
-            bit = block[error_pos - 1]
-            block = block[:error_pos - 1] + str(1 - int(bit)) + block[error_pos:]
-        return block
+    def __init__(self, k_bits):
+        self.K = k_bits
+        self.m = 0
+        while (2**self.m) < (self.K + self.m + 1):
+            self.m += 1
+        self.N = self.K + self.m
 
+    def encode(self, bits):
+        if not bits: return bits
+        remainder = len(bits) % self.K
+        if remainder:
+            bits = bits + '0' * (self.K - remainder)
+        encoded = []
+        for i in range(0, len(bits), self.K):
+            data = [int(b) for b in bits[i:i + self.K]]
+            codeword = [0] * self.N
+            data_idx = 0
+            for pos in range(1, self.N + 1):
+                if not (pos & (pos - 1) == 0):
+                    codeword[pos-1] = data[data_idx]
+                    data_idx += 1
+            for j in range(self.m):
+                p_pos = 2**j
+                parity = 0
+                for pos in range(1, self.N + 1):
+                    if pos & p_pos:
+                        parity ^= codeword[pos-1]
+                codeword[p_pos-1] = parity
+            encoded.extend([str(b) for b in codeword])
+        return ''.join(encoded)
+
+    def decode(self, bits):
+        if not bits or len(bits) % self.N != 0:
+            return bits if not bits else None
+        decoded = []
+        for i in range(0, len(bits), self.N):
+            r = [int(b) for b in bits[i:i + self.N]]
+            syndrome = 0
+            for j in range(self.m):
+                p_pos = 2**j
+                parity = 0
+                for pos in range(1, self.N + 1):
+                    if pos & p_pos:
+                        parity ^= r[pos-1]
+                if parity:
+                    syndrome += p_pos
+            if 0 < syndrome <= self.N:
+                r[syndrome-1] ^= 1
+            for pos in range(1, self.N + 1):
+                if not (pos & (pos - 1) == 0):
+                    decoded.append(str(r[pos-1]))
+        return ''.join(decoded)
 
 class Modulator:
-    @staticmethod
     def modulate(bits):
         if not bits:
             return []
-        if len(bits) % 2:
-            bits += '0'
-        
+
+        if len(bits) % 2 != 0:
+            bits = bits + '0'
+
         symbols = []
         for i in range(0, len(bits), 2):
-            pair = bits[i:i+2]
-            if pair == '00':
+            bit_pair = bits[i:i + 2]
+
+            if bit_pair == '00':
                 symbols.append(complex(0.707, 0.707))
-            elif pair == '01':
+            elif bit_pair == '01':
                 symbols.append(complex(0.707, -0.707))
-            elif pair == '10':
+            elif bit_pair == '10':
                 symbols.append(complex(-0.707, 0.707))
             else:
                 symbols.append(complex(-0.707, -0.707))
+
         return symbols
 
 
 class Demodulator:
-    @staticmethod
     def demodulate(symbols):
         if not symbols:
             return ""
+
         bits = []
-        for s in symbols:
-            if s.real > 0 and s.imag > 0:
+        for symbol in symbols:
+            if symbol.real > 0 and symbol.imag > 0:
                 bits.append('00')
-            elif s.real > 0 and s.imag < 0:
+            elif symbol.real > 0 and symbol.imag < 0:
                 bits.append('01')
-            elif s.real < 0 and s.imag > 0:
+            elif symbol.real < 0 and symbol.imag > 0:
                 bits.append('10')
             else:
                 bits.append('11')
+
         return ''.join(bits)
 
 
@@ -156,161 +143,282 @@ class Interleaver:
     def __init__(self, seed=42):
         self.seed = seed
         self.permutation = None
-    
+
     def interleave(self, bits):
         if not bits:
             return bits
+
         np.random.seed(self.seed)
-        self.permutation = np.random.permutation(len(bits))
-        return ''.join(bits[self.permutation[i]] for i in range(len(bits)))
-    
+        n = len(bits)
+        self.permutation = np.random.permutation(n)
+
+        interleaved = ['0'] * n
+        for i, pos in enumerate(self.permutation):
+            interleaved[pos] = bits[i]
+
+        return ''.join(interleaved)
+
+
+class Deinterleaver:
+    def __init__(self, interleaver):
+        self.permutation = interleaver.permutation
+
     def deinterleave(self, bits):
         if not bits or self.permutation is None:
             return bits
-        result = [''] * len(bits)
+
+        n = len(bits)
+        deinterleaved = ['0'] * n
+
         for i, pos in enumerate(self.permutation):
-            result[pos] = bits[i]
-        return ''.join(result)
+            deinterleaved[i] = bits[pos]
+
+        return ''.join(deinterleaved)
 
 
-def add_noise(symbols, level=0.2):
-    return [complex(s.real + np.random.normal(0, level), 
-                    s.imag + np.random.normal(0, level)) for s in symbols]
+# ====================== OFDM модулятор / демодулятор ======================
+class OfdmModulator:
+    def __init__(self, n_subcarriers=64, cp_len=16):
+        self.n_subcarriers = n_subcarriers
+        self.cp_len = cp_len
+        self.original_len = None
+
+    def modulate(self, symbols):
+        """Преобразует список комплексных QPSK символов в OFDM сигнал (IFFT + CP)."""
+        if not symbols:
+            return []
+        self.original_len = len(symbols)
+        # Дополнение нулями до кратности n_subcarriers
+        n_sym = len(symbols)
+        pad_len = (self.n_subcarriers - (n_sym % self.n_subcarriers)) % self.n_subcarriers
+        if pad_len > 0:
+            symbols = np.append(symbols, [0+0j] * pad_len)
+        # Разбиваем на блоки
+        symbols = np.array(symbols)
+        blocks = symbols.reshape(-1, self.n_subcarriers)
+        ofdm_signal = []
+        for block in blocks:
+            # IFFT
+            ifft_block = np.fft.ifft(block, self.n_subcarriers)
+            # Добавление циклического префикса
+            cp = ifft_block[-self.cp_len:]
+            ofdm_signal.extend(np.concatenate([cp, ifft_block]))
+        return np.array(ofdm_signal)
 
 
+class OfdmDemodulator:
+    def __init__(self, modulator):
+        self.n_subcarriers = modulator.n_subcarriers
+        self.cp_len = modulator.cp_len
+        self.original_len = modulator.original_len
+
+    def demodulate(self, ofdm_signal):
+        """Восстанавливает QPSK символы из OFDM сигнала (удаление CP, FFT)."""
+        if len(ofdm_signal) == 0:
+            return []
+        block_len = self.n_subcarriers + self.cp_len
+        n_blocks = len(ofdm_signal) // block_len
+        if len(ofdm_signal) % block_len != 0:
+            # Обрезаем лишнее
+            ofdm_signal = ofdm_signal[:n_blocks * block_len]
+        symbols = []
+        for i in range(n_blocks):
+            block = ofdm_signal[i*block_len : (i+1)*block_len]
+            # Удаление CP
+            data_part = block[self.cp_len:]
+            # FFT
+            fft_block = np.fft.fft(data_part, self.n_subcarriers)
+            symbols.extend(fft_block)
+        # Обрезаем до исходной длины (убираем добавленные нули)
+        if self.original_len is not None:
+            symbols = symbols[:self.original_len]
+        return symbols
+
+
+# ====================== Многолучевой канал с АБГШ ======================
+class MultipathChannel:
+    def __init__(self, fc=2.4e9, bandwidth=1e6, num_paths=3, n0_db=-100):
+        """
+        fc: несущая частота (Гц)
+        bandwidth: полоса сигнала (Гц)
+        num_paths: количество лучей (Nl)
+        n0_db: спектральная плотность мощности шума (дБ)
+        """
+        self.fc = fc
+        self.bandwidth = bandwidth
+        self.num_paths = num_paths
+        self.n0_db = n0_db
+        self.c = 3e8          # скорость света
+        self.Ts = 1.0 / bandwidth   # длительность отсчета
+
+    def propagate(self, tx_signal):
+        """
+        Вход: комплексный сигнал (массив numpy)
+        Выход: сигнал после многолучевого канала + АБГШ (обрезанный до длины входа)
+        """
+        if len(tx_signal) == 0:
+            return tx_signal
+
+        # Генерация случайных расстояний для каждого луча (10...500 м)
+        distances = np.random.uniform(10, 500, self.num_paths)
+        min_dist = np.min(distances)
+        # Задержки (в отсчётах) относительно прямого луча
+        delays = []
+        for d in distances:
+            tau = (d - min_dist) / (self.c * self.Ts)
+            delays.append(int(round(tau)))   # округление до целого
+        # Коэффициенты ослабления
+        gains = []
+        for d in distances:
+            gain = self.c / (4 * np.pi * d * self.fc)
+            gains.append(gain)
+
+        max_delay = max(delays)
+        L = len(tx_signal)
+        # Инициализация результирующего сигнала (нулевой)
+        rx_sum = np.zeros(L + max_delay, dtype=complex)
+
+        # Наложение всех лучей
+        for i in range(self.num_paths):
+            shift = delays[i]
+            gain = gains[i]
+            # Сдвиг и ослабление
+            shifted = np.zeros(L + shift, dtype=complex)
+            shifted[shift:] = tx_signal * gain
+            # Суммирование с учётом разной длины
+            if len(shifted) > len(rx_sum):
+                shifted = shifted[:len(rx_sum)]
+            rx_sum[:len(shifted)] += shifted
+
+        # Обрезаем до длины L (исходная длина сигнала)
+        rx_signal = rx_sum[:L]
+
+        # Добавление АБГШ
+        # Переводим N0 из дБ в линейную величину
+        n0_linear = 10 ** (self.n0_db / 10.0)
+        # Мощность шума в полосе: N0 * B
+        noise_power = n0_linear * self.bandwidth
+        # Дисперсия на комплексную размерность: noise_power / 2
+        noise_std = np.sqrt(noise_power / 2.0)
+        noise = noise_std * (np.random.randn(L) + 1j * np.random.randn(L))
+        rx_signal += noise
+
+        return rx_signal
+
+
+# ====================== Основная программа ======================
 def main():
-    msg = "Hello World. This is test message and no more"
-    print(f"Сообщение: {msg}\n")
-    
-    # Выбираем длину блока Хэмминга
+    msg = "Hello World. This is test message and no more..."
+    print(f"Исходное сообщение: {msg}\n")
+    print(f"Исходное сообщение(длительность): {len(msg) * 8}\n")
+
     try:
-        data_len = int(input("Длина блока (8,16,32): ") or "8")
-        if data_len not in [8,16,32]:
-            data_len = 8
-    except:
-        data_len = 8
-    
-    hamming = HammingCoder(data_len)
-    print(f"Блок: {data_len} бит, Проверочных: 4, Всего: {data_len+4}\n")
-    
-    # Кодируем
+        user_input = input("Введите количество информационных бит для кода Хэмминга: ")
+        k_bits = int(user_input) if user_input else 11
+    except ValueError:
+        print("Ошибка ввода, используется 11")
+        k_bits = 11
+
+    # ---- Символьное кодирование ----
     encoded = SignCoder.sign_encoder(msg)
-    print(f"1. Символьное кодирование: {len(encoded)} бит")
-    
-    hamming_encoded = hamming.encode(encoded)
-    print(f"2. Код Хэмминга: {len(hamming_encoded)} бит")
-    
-    interleaver = Interleaver(42)
+    if not encoded:
+        print("Ошибка кодирования")
+        return
+    print(f"Символьное кодирование:")
+    print(f"  Битовое представление: {len(encoded)} бит")
+    print(f"  Первые 30 бит: {encoded[:30]}...")
+
+    # ---- Код Хэмминга ----
+    hamming_coder = HammingCoder(k_bits)
+    hamming_encoded = hamming_coder.encode(encoded)
+    print(f"\nКодирование Хэмминга ({k_bits} инф. бит):")
+    print(f"  Закодировано: {len(hamming_encoded)} бит")
+    print(f"  Первые 30 бит: {hamming_encoded[:30]}...")
+
+    # ---- Перемежение ----
+    interleaver = Interleaver(seed=42)
     interleaved = interleaver.interleave(hamming_encoded)
-    print(f"3. Перемежение: {len(interleaved)} бит")
-    
-    # QPSK
-    symbols = Modulator.modulate(interleaved)
-    print(f"4. QPSK модуляция: {len(symbols)} символов")
-    
-    noisy = add_noise(symbols, 0.2)
-    print(f"5. Добавлен шум")
-    
-    demod_bits = Demodulator.demodulate(noisy)
-    print(f"6. QPSK демодуляция: {len(demod_bits)} бит")
-    
-    # Проверка качества
-    correct = sum(a == b for a, b in zip(interleaved, demod_bits))
-    print(f"   Качество: {correct}/{len(interleaved)} ({correct/len(interleaved)*100:.1f}%)")
-    
-    # Обратные операции
-    deinterleaved = interleaver.deinterleave(demod_bits)
-    print(f"7. Деинтерливинг")
-    
-    hamming_decoded = hamming.decode(deinterleaved, fix_errors=True)
-    print(f"8. Декодирование Хэмминга")
-    
+    print(f"\nПеремежение:")
+    print(f"  После перемежения: {len(interleaved)} бит")
+    print(f"  Первые 10 бит: {interleaved[:10]}")
+    print(f"  Первые 10 бит до перемежения: {hamming_encoded[:10]}")
+
+    # ---- QPSK модуляция ----
+    print(f"\nQPSK модуляция:")
+    qpsk_symbols = Modulator.modulate(interleaved)
+    print(f"  До модуляции: {len(interleaved)} бит")
+    print(f"  После модуляции: {len(qpsk_symbols)} символов")
+
+    # ====================== НОВЫЙ БЛОК: OFDM ======================
+    # Параметры OFDM (можно изменить при необходимости)
+    N_SUBCARRIERS = 64
+    CP_LEN = 16
+    ofdm_mod = OfdmModulator(n_subcarriers=N_SUBCARRIERS, cp_len=CP_LEN)
+    ofdm_signal = ofdm_mod.modulate(qpsk_symbols)
+    print(f"\nOFDM модуляция:")
+    print(f"  Символов на входе: {len(qpsk_symbols)}")
+    print(f"  OFDM отсчётов на выходе (с CP): {len(ofdm_signal)}")
+
+    # ---- Параметры многолучевого канала ----
+    try:
+        nl_input = input("Введите количество лучей (Nl) [по умолчанию 3]: ")
+        num_paths = int(nl_input) if nl_input else 3
+        n0_input = input("Введите мощность АБГШ (N0, дБ) [по умолчанию -100]: ")
+        n0_db = float(n0_input) if n0_input else -100.0
+    except ValueError:
+        print("Ошибка ввода, используются значения по умолчанию: Nl=3, N0=-100 дБ")
+        num_paths = 3
+        n0_db = -100.0
+
+    # Константы канала (вариант задания)
+    FC = 2.4e9          # несущая частота, Гц
+    BANDWIDTH = 1e6     # полоса сигнала, Гц
+
+    channel = MultipathChannel(fc=FC, bandwidth=BANDWIDTH,
+                               num_paths=num_paths, n0_db=n0_db)
+    # Передача через многолучевой канал с шумом
+    received_signal = channel.propagate(ofdm_signal)
+    print(f"\nМноголучевой канал + АБГШ:")
+    print(f"  Количество лучей: {num_paths}")
+    print(f"  N0 = {n0_db} дБ")
+    print(f"  Длина принятого сигнала: {len(received_signal)} отсчётов")
+
+    # ---- OFDM демодуляция ----
+    ofdm_demod = OfdmDemodulator(ofdm_mod)
+    recovered_qpsk = ofdm_demod.demodulate(received_signal)
+    print(f"\nOFDM демодуляция:")
+    print(f"  Восстановлено QPSK символов: {len(recovered_qpsk)} (ожидалось {len(qpsk_symbols)})")
+
+    # ---- QPSK демодуляция ----
+    demodulated_bits = Demodulator.demodulate(recovered_qpsk)
+    print(f"\nQPSK демодуляция:")
+    print(f"  После демодуляции: {len(demodulated_bits)} бит")
+    print(f"  Первые 30 бит: {demodulated_bits[:30]}...")
+
+    # Сравнение с исходными битами после перемежения (без учёта ошибок OFDM)
+    correct = sum(1 for i in range(len(interleaved)) if i < len(demodulated_bits) and interleaved[i] == demodulated_bits[i])
+    print(f"  Совпадение бит (до деперемежения): {correct}/{len(interleaved)}")
+
+    # ---- Деиеремежение ----
+    deinterleaver = Deinterleaver(interleaver)
+    deinterleaved = deinterleaver.deinterleave(demodulated_bits)
+    print(f"\nДеинтерливинг:")
+    print(f"  После деинтерливинга: {len(deinterleaved)} бит")
+
+    # ---- Декодирование Хэмминга ----
+    hamming_decoded = hamming_coder.decode(deinterleaved)
+    if not hamming_decoded:
+        print("Ошибка декодирования Хэмминга")
+        return
+    print(f"\nДекодирование Хэмминга:")
+    print(f"  После декодирования: {len(hamming_decoded)} бит")
+
+    # ---- Символьное декодирование ----
     decoded = SignCoder.sign_decoder(hamming_decoded[:len(encoded)])
-    print(f"9. Результат: {decoded}")
-    print(f"   Успех: {msg == decoded}")
-    
-    # Краткое объяснение
-    print("\n" + "="*50)
-    print("КАК РАБОТАЕТ КОД ХЭММИНГА:")
-    print("="*50)
-    print(f"• Блок данных: {data_len} бит")
-    print(f"• Контрольные биты на позициях: 1,2,4,8")
-    print("• При ошибке сумма позиций несовпавших контрольных бит = позиция ошибки")
-    print("• Может исправить 1 ошибку в блоке")
+    print(f"\nПолученное сообщение: {decoded}")
 
 if __name__ == "__main__":
-    main()    def calculate_redundant_bits(self, k):
-        r = 1
-        while (2**r) < (k + r + 1):
-            r += 1
-        return r
-    
-    def get_parity_positions(self, n):
-        parity_positions = []
-        pos = 1
-        while pos <= n:
-            parity_positions.append(pos)
-            pos <<= 1
-        return parity_positions
-    
-    def encode(self, bits):
-        if not bits:
-            return bits
-        
-        remainder = len(bits) % self.K
-        if remainder:
-            bits = bits + '0' * (self.K - remainder)
-        
-        encoded = []
-        
-        for i in range(0, len(bits), self.K):
-            data = [int(b) for b in bits[i:i+self.K]]
-            
-            codeword = [0] * self.N
-            parity_positions = self.get_parity_positions(self.N)
-            
-            data_idx = 0
-            for pos in range(1, self.N + 1):
-                if pos not in parity_positions:
-                    if data_idx < len(data):
-                        codeword[pos - 1] = data[data_idx]
-                        data_idx += 1
-            
-            for p in parity_positions:
-                if p <= self.N:
-                    parity = 0
-                    for j in range(p, self.N + 1):
-                        if j & p:
-                            if j not in parity_positions:
-                                parity ^= codeword[j - 1]
-                    codeword[p - 1] = parity
-            
-            encoded.extend([str(b) for b in codeword])
-        
-        return ''.join(encoded)
-    
-    def decode(self, bits):
-        if not bits or len(bits) % self.N != 0:
-            return bits if not bits else None
-        
-        decoded = []
-        parity_positions = self.get_parity_positions(self.N)
-        
-        for i in range(0, len(bits), self.N):
-            r = [int(b) for b in bits[i:i+self.N]]
-            
-            syndrome = 0
-            for p in parity_positions:
-                if p <= self.N:
-                    parity = 0
-                    for j in range(p, self.N + 1):
-                        if j & p:
-                            parity ^= r[j - 1]
-                    if parity != 0:
-                        syndrome += p
-            
-            if syndrome != 0 and syndrome <= self.N:
-                r[syndrome - 1] ^= 1
+    main()   r[syndrome - 1] ^= 1
             
             data_bits = []
             for pos in range(1, self.N + 1):
