@@ -178,68 +178,105 @@ class Deinterleaver:
 
         return ''.join(deinterleaved)
 
+
 class OfdmModulator:
-    def __init__(self, n_subcarriers=64, cp_len=16):
-        self.n_subcarriers = n_subcarriers
+    def __init__(self, delta_rs=6, cp_len=16, c_param=0.25, pilot_value=complex(0.707, 0.707)):
+        self.delta_rs = delta_rs
         self.cp_len = cp_len
-        self.original_len = None
-
+        self.c_param = c_param
+        self.pilot_value = pilot_value
+        self.n_pilots = None
+        self.n_zeros = None
+        self.total_carriers = None
+        self.pilot_indices = None
+        self.data_indices = None
+        self.n_qpsk = None
+        
     def modulate(self, symbols):
-
         if not symbols:
             return []
-        self.original_len = len(symbols)
-
-        n_sym = len(symbols)
-        pad_len = (self.n_subcarriers - (n_sym % self.n_subcarriers)) % self.n_subcarriers
-        if pad_len > 0:
-            symbols = np.append(symbols, [0 + 0j] * pad_len)
-
-        symbols = np.array(symbols)
-        blocks = symbols.reshape(-1, self.n_subcarriers)
-        ofdm_signal = []
-        for block in blocks:
-
-            ifft_block = np.fft.ifft(block, self.n_subcarriers)
-
-            cp = ifft_block[-self.cp_len:]
-            ofdm_signal.extend(np.concatenate([cp, ifft_block]))
-        return np.array(ofdm_signal)
+        
+        self.n_qpsk = len(symbols)
+        self.n_pilots = int(np.floor(self.n_qpsk / self.delta_rs))
+        if self.n_pilots == 0:
+            self.n_pilots = 1
+        
+        self.n_zeros = int(self.c_param * (self.n_pilots + self.n_qpsk))
+        self.total_carriers = self.n_pilots + self.n_qpsk + 2 * self.n_zeros
+        
+        spectrum = np.zeros(self.total_carriers, dtype=complex)
+        
+        self.pilot_indices = []
+        pilot_pos = self.n_zeros
+        for i in range(self.n_pilots):
+            idx = pilot_pos + i * self.delta_rs
+            if idx < self.total_carriers - self.n_zeros:
+                self.pilot_indices.append(int(idx))
+                spectrum[idx] = self.pilot_value
+        
+        self.data_indices = []
+        data_idx = 0
+        for i in range(self.total_carriers):
+            if i >= self.n_zeros and i < self.total_carriers - self.n_zeros:
+                if i not in self.pilot_indices:
+                    if data_idx < len(symbols):
+                        spectrum[i] = symbols[data_idx]
+                        self.data_indices.append(i)
+                        data_idx += 1
+        
+        time_signal = np.fft.ifft(spectrum)
+        
+        cp = time_signal[-self.cp_len:]
+        ofdm_symbol = np.concatenate([cp, time_signal])
+        
+        return ofdm_symbol
 
 
 class OfdmDemodulator:
     def __init__(self, modulator):
-        self.n_subcarriers = modulator.n_subcarriers
+        self.delta_rs = modulator.delta_rs
         self.cp_len = modulator.cp_len
-        self.original_len = modulator.original_len
-
+        self.c_param = modulator.c_param
+        self.pilot_value = modulator.pilot_value
+        self.n_pilots = modulator.n_pilots
+        self.n_zeros = modulator.n_zeros
+        self.total_carriers = modulator.total_carriers
+        self.pilot_indices = modulator.pilot_indices
+        self.data_indices = modulator.data_indices
+        self.n_qpsk = modulator.n_qpsk
+        
     def demodulate(self, ofdm_signal):
-
         if len(ofdm_signal) == 0:
             return []
-        block_len = self.n_subcarriers + self.cp_len
-        n_blocks = len(ofdm_signal) // block_len
-        if len(ofdm_signal) % block_len != 0:
-
-            ofdm_signal = ofdm_signal[:n_blocks * block_len]
-        symbols = []
-        for i in range(n_blocks):
-            block = ofdm_signal[i * block_len: (i + 1) * block_len]
-
-            data_part = block[self.cp_len:]
-
-            fft_block = np.fft.fft(data_part, self.n_subcarriers)
-            symbols.extend(fft_block)
-
-        if self.original_len is not None:
-            symbols = symbols[:self.original_len]
-        return symbols
-
+        
+        time_signal = ofdm_signal[self.cp_len:self.cp_len + self.total_carriers]
+        
+        spectrum = np.fft.fft(time_signal)
+        
+        rx_pilots = np.array([spectrum[idx] for idx in self.pilot_indices])
+        tx_pilots = np.array([self.pilot_value] * len(self.pilot_indices))
+        
+        h_est = rx_pilots / tx_pilots
+        
+        all_data_indices = list(range(self.n_zeros, self.total_carriers - self.n_zeros))
+        h_full = np.interp(all_data_indices, self.pilot_indices, h_est)
+        
+        heq = 1.0 / h_full
+        
+        recovered_symbols = []
+        for i, idx in enumerate(self.data_indices):
+            if idx < len(spectrum):
+                eq_idx = all_data_indices.index(idx) if idx in all_data_indices else i
+                if eq_idx < len(heq):
+                    recovered_symbols.append(spectrum[idx] * heq[eq_idx])
+                else:
+                    recovered_symbols.append(spectrum[idx])
+        
+        return np.array(recovered_symbols[:self.n_qpsk])
 
 
 class MultipathChannel:
     def __init__(self, fc=2.4e9, bandwidth=9e6, num_paths=3, n0_db=-100):
-
         self.fc = fc
         self.bandwidth = bandwidth
         self.num_paths = num_paths
@@ -248,7 +285,6 @@ class MultipathChannel:
         self.Ts = 1.0 / bandwidth
 
     def propagate(self, tx_signal):
-
         if len(tx_signal) == 0:
             return tx_signal
 
@@ -281,13 +317,10 @@ class MultipathChannel:
                 shifted = shifted[:len(rx_sum)]
             rx_sum[:len(shifted)] += shifted
 
-
         rx_signal = rx_sum[:L]
 
         n0_linear = 10 ** (self.n0_db / 10.0)
-
         noise_power = n0_linear * self.bandwidth
-
         noise_std = np.sqrt(noise_power / 2.0)
         noise = noise_std * (np.random.randn(L) + 1j * np.random.randn(L))
         rx_signal += noise
@@ -295,95 +328,167 @@ class MultipathChannel:
         return rx_signal
 
 
+def calculate_ber(tx_bits, rx_bits):
+    if len(tx_bits) != len(rx_bits):
+        min_len = min(len(tx_bits), len(rx_bits))
+        tx_bits = tx_bits[:min_len]
+        rx_bits = rx_bits[:min_len]
+    
+    errors = sum(1 for i in range(len(tx_bits)) if tx_bits[i] != rx_bits[i])
+    ber = errors / len(tx_bits) if len(tx_bits) > 0 else 0
+    return ber, errors
+
+
+def plot_spectrums(tx_spectrum, rx_spectrum_before, rx_spectrum_after):
+    plt.figure(figsize=(12, 8))
+    
+    plt.subplot(3, 1, 1)
+    plt.plot(np.abs(tx_spectrum))
+    plt.title('Спектр переданного OFDM символа')
+    plt.xlabel('Индекс поднесущей')
+    plt.ylabel('Амплитуда')
+    plt.grid(True)
+    
+    plt.subplot(3, 1, 2)
+    plt.plot(np.abs(rx_spectrum_before))
+    plt.title('Спектр принятого OFDM символа до эквалайзирования')
+    plt.xlabel('Индекс поднесущей')
+    plt.ylabel('Амплитуда')
+    plt.grid(True)
+    
+    plt.subplot(3, 1, 3)
+    plt.plot(np.abs(rx_spectrum_after))
+    plt.title('Спектр принятого OFDM символа после эквалайзирования')
+    plt.xlabel('Индекс поднесущей')
+    plt.ylabel('Амплитуда')
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_constellations(tx_symbols, rx_symbols):
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.scatter([s.real for s in tx_symbols], [s.imag for s in tx_symbols])
+    plt.title('Сигнальное созвездие QPSK в передатчике')
+    plt.xlabel('I')
+    plt.ylabel('Q')
+    plt.grid(True)
+    plt.axis('equal')
+    
+    plt.subplot(1, 2, 2)
+    plt.scatter([s.real for s in rx_symbols], [s.imag for s in rx_symbols])
+    plt.title('Сигнальное созвездие QPSK в приемнике')
+    plt.xlabel('I')
+    plt.ylabel('Q')
+    plt.grid(True)
+    plt.axis('equal')
+    
+    plt.tight_layout()
+    plt.show()
+
+
 def main():
     msg = "Hello World. This is test message and no more..."
     print(f"Исходное сообщение: {msg}\n")
-    print(f"Исходное сообщение(длительность): {len(msg) * 8}\n")
+    print(f"Длина сообщения: {len(msg)} символов")
 
-    user_input = input("Введите количество информационных бит для кода Хэмминга: ")
+    user_input = input("Введите количество информационных бит для кода Хэмминга (например 11): ")
     k_bits = int(user_input) if user_input else 11
 
     encoded = SignCoder.sign_encoder(msg)
     if not encoded:
         print("Ошибка кодирования")
         return
-    print(f"Символьное кодирование:")
-    print(f"  Битовое представление: {len(encoded)} бит")
-    print(f"  Первые 30 бит: {encoded[:30]}...")
-
+    print(f"Символьное кодирование: {len(encoded)} бит")
 
     hamming_coder = HammingCoder(k_bits)
     hamming_encoded = hamming_coder.encode(encoded)
-    print(f"\nКодирование Хэмминга ({k_bits} инф. бит):")
-    print(f"  Закодировано: {len(hamming_encoded)} бит")
-    print(f"  Первые 30 бит: {hamming_encoded[:30]}...")
+    print(f"Кодирование Хэмминга: {len(hamming_encoded)} бит")
 
     interleaver = Interleaver(seed=42)
     interleaved = interleaver.interleave(hamming_encoded)
-    print(f"\nПеремежение:")
-    print(f"  После перемежения: {len(interleaved)} бит")
-    print(f"  Первые 10 бит: {interleaved[:10]}")
-    print(f"  Первые 10 бит до перемежения: {hamming_encoded[:10]}")
+    print(f"Перемежение: {len(interleaved)} бит")
 
-    print(f"\nQPSK модуляция:")
     qpsk_symbols = Modulator.modulate(interleaved)
-    print(f"  До модуляции: {len(interleaved)} бит")
-    print(f"  После модуляции: {len(qpsk_symbols)} символов")
+    print(f"QPSK модуляция: {len(qpsk_symbols)} символов")
 
-    N_SUBCARRIERS = 64
-    CP_LEN = 16
-    ofdm_mod = OfdmModulator(n_subcarriers=N_SUBCARRIERS, cp_len=CP_LEN)
+    delta_rs = int(input("Введите шаг опорных поднесущих delta_RS (например 6): ") or 6)
+    cp_len = int(input("Введите длину циклического префикса TCP (например 16): ") or 16)
+    c_param = float(input("Введите параметр C для нулевых поднесущих (например 0.25): ") or 0.25)
+    
+    ofdm_mod = OfdmModulator(delta_rs=delta_rs, cp_len=cp_len, c_param=c_param)
     ofdm_signal = ofdm_mod.modulate(qpsk_symbols)
+    print(f"OFDM модуляция: {len(ofdm_signal)} отсчетов")
 
-    print(f"\nOFDM модуляция:")
-    print(f"  Символов на входе: {len(qpsk_symbols)}")
-    print(f"  OFDM отсчётов на выходе (с CP): {len(ofdm_signal)}")
+    num_paths = int(input("Введите количество лучей (например 3): ") or 3)
+    n0_db = float(input("Введите мощность АБГШ N0 в дБ (например -100): ") or -100)
 
-    nl_input = 9 #input("Введите количество лучей (Nl): ")
-    num_paths = int(nl_input) if nl_input else 3
-    n0_input = input("Введите мощность АБГШ (N0, дБ): ")
-    n0_db = float(n0_input) if n0_input else -100.0
-
-    FC = 2.4e9
-    BANDWIDTH = 1e6
-
-    channel = MultipathChannel(fc=FC, bandwidth=BANDWIDTH,
-                               num_paths=num_paths, n0_db=n0_db)
-
+    channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=num_paths, n0_db=n0_db)
     received_signal = channel.propagate(ofdm_signal)
-    print(f"\nМноголучевость и АБГШ")
-    print(f"  Количество лучей: {num_paths}")
-    print(f"  N0 = {n0_db} дБ")
-    print(f"  Длина принятого сигнала: {len(received_signal)} отсчётов")
+    print(f"Многолучевой канал: {num_paths} лучей, N0 = {n0_db} дБ")
 
     ofdm_demod = OfdmDemodulator(ofdm_mod)
     recovered_qpsk = ofdm_demod.demodulate(received_signal)
-    print(f"\nOFDM демодуляция:")
-    print(f"  Восстановлено QPSK символов: {len(recovered_qpsk)} (ожидалось {len(qpsk_symbols)})")
+    print(f"OFDM демодуляция: {len(recovered_qpsk)} символов")
 
     demodulated_bits = Demodulator.demodulate(recovered_qpsk)
-    print(f"\nQPSK демодуляция:")
-    print(f"  После демодуляции: {len(demodulated_bits)} бит")
-    print(f"  Первые 30 бит: {demodulated_bits[:30]}...")
-
-    correct = sum(
-        1 for i in range(len(interleaved)) if i < len(demodulated_bits) and interleaved[i] == demodulated_bits[i])
-    print(f"  Совпадение бит (до деперемежения): {correct}/{len(interleaved)}")
+    print(f"QPSK демодуляция: {len(demodulated_bits)} бит")
 
     deinterleaver = Deinterleaver(interleaver)
     deinterleaved = deinterleaver.deinterleave(demodulated_bits)
-    print(f"\nДеинтерливинг:")
-    print(f"  После деинтерливинга: {len(deinterleaved)} бит")
+    print(f"Обратное перемежение: {len(deinterleaved)} бит")
 
     hamming_decoded = hamming_coder.decode(deinterleaved)
     if not hamming_decoded:
         print("Ошибка декодирования Хэмминга")
         return
-    print(f"\nДекодирование Хэмминга:")
-    print(f"  После декодирования: {len(hamming_decoded)} бит")
+    print(f"Декодирование Хэмминга: {len(hamming_decoded)} бит")
 
     decoded = SignCoder.sign_decoder(hamming_decoded[:len(encoded)])
     print(f"\nПолученное сообщение: {decoded}")
 
-main()
+    ber, errors = calculate_ber(encoded, hamming_decoded[:len(encoded)])
+    print(f"\nBER (вероятность битовых ошибок): {ber:.6f}")
+    print(f"Ошибочных бит: {errors} из {len(encoded)}")
 
+    temp_mod = OfdmModulator(delta_rs=delta_rs, cp_len=cp_len, c_param=c_param)
+    temp_mod.n_qpsk = len(qpsk_symbols)
+    temp_mod.n_pilots = int(np.floor(len(qpsk_symbols) / delta_rs))
+    if temp_mod.n_pilots == 0:
+        temp_mod.n_pilots = 1
+    temp_mod.n_zeros = int(c_param * (temp_mod.n_pilots + len(qpsk_symbols)))
+    temp_mod.total_carriers = temp_mod.n_pilots + len(qpsk_symbols) + 2 * temp_mod.n_zeros
+    spectrum_tx = np.zeros(temp_mod.total_carriers, dtype=complex)
+    pilot_pos = temp_mod.n_zeros
+    for i in range(temp_mod.n_pilots):
+        idx = pilot_pos + i * delta_rs
+        if idx < temp_mod.total_carriers - temp_mod.n_zeros:
+            spectrum_tx[int(idx)] = complex(0.707, 0.707)
+    data_idx = 0
+    for i in range(temp_mod.total_carriers):
+        if i >= temp_mod.n_zeros and i < temp_mod.total_carriers - temp_mod.n_zeros:
+            if i not in [pilot_pos + j * delta_rs for j in range(temp_mod.n_pilots) if pilot_pos + j * delta_rs < temp_mod.total_carriers - temp_mod.n_zeros]:
+                if data_idx < len(qpsk_symbols):
+                    spectrum_tx[i] = qpsk_symbols[data_idx]
+                    data_idx += 1
+    
+    time_signal_rx = received_signal[cp_len:cp_len + temp_mod.total_carriers] if len(received_signal) >= cp_len + temp_mod.total_carriers else np.zeros(temp_mod.total_carriers, dtype=complex)
+    spectrum_rx_before = np.fft.fft(time_signal_rx) if len(time_signal_rx) == temp_mod.total_carriers else np.zeros(temp_mod.total_carriers, dtype=complex)
+    
+    recovered_qpsk_full = ofdm_demod.demodulate(received_signal)
+    spectrum_rx_after = np.zeros(temp_mod.total_carriers, dtype=complex)
+    data_recovered_idx = 0
+    for idx in ofdm_mod.data_indices:
+        if idx < len(spectrum_rx_after) and data_recovered_idx < len(recovered_qpsk_full):
+            spectrum_rx_after[idx] = recovered_qpsk_full[data_recovered_idx]
+            data_recovered_idx += 1
+
+    plot_spectrums(spectrum_tx, spectrum_rx_before, spectrum_rx_after)
+    plot_constellations(qpsk_symbols, recovered_qpsk)
+
+
+if __name__ == "__main__":
+    main()
