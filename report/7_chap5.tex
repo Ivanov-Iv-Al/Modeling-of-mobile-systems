@@ -1,0 +1,80 @@
+\chapter{Практика 5. OFDM модуляция}
+
+\section{Задание}
+Реализовать формирование OFDM символа, включающего QPSK символы, опорные сигналы, нулевые защитные интервалы и циклический префикс.
+
+\section{Теоретическое описание}
+OFDM (Orthogonal Frequency Division Multiplexing) — метод мультиплексирования, при котором данные передаются на множестве ортогональных поднесущих. Основные элементы OFDM символа:
+
+\begin{enumerate}
+    \item \textbf{Информационные поднесущие} — передают QPSK символы
+    \item \textbf{Опорные сигналы (пилоты)} — известные символы для оценки канала
+    \item \textbf{Нулевые поднесущие} — защитные интервалы для борьбы с внеполосным излучением
+    \item \textbf{Циклический префикс (CP)} — копия конца символа, добавляемая в начало для борьбы с межсимвольной интерференцией
+\end{enumerate}
+
+Количество опорных поднесущих:
+\[
+N_{RS} = \left\lfloor \frac{N_{QPSK}}{\Delta RS} \right\rfloor
+\]
+
+Количество нулевых поднесущих:
+\[
+N_2 = C \cdot (N_{RS} + N_{QPSK})
+\]
+
+\section{Реализация}
+
+\begin{lstlisting}[language=Python, caption=OFDM модулятор]
+class OfdmModulator:
+    def __init__(self, delta_rs=6, cp_len=16, c_param=0.25, pilot_value=complex(0.707, 0.707)):
+        self.delta_rs = delta_rs
+        self.cp_len = cp_len
+        self.c_param = c_param
+        self.pilot_value = pilot_value
+        
+    def modulate(self, symbols):
+        self.n_qpsk = len(symbols)
+        self.n_pilots = int(np.floor(self.n_qpsk / self.delta_rs))
+        if self.n_pilots == 0:
+            self.n_pilots = 1
+        self.n_zeros = int(self.c_param * (self.n_pilots + self.n_qpsk))
+        self.total_carriers = self.n_pilots + self.n_qpsk + 2 * self.n_zeros
+        
+        spectrum = np.zeros(self.total_carriers, dtype=complex)
+        
+        self.pilot_indices = []
+        pilot_pos = self.n_zeros
+        for i in range(self.n_pilots):
+            idx = pilot_pos + i * self.delta_rs
+            if idx < self.total_carriers - self.n_zeros:
+                self.pilot_indices.append(int(idx))
+                spectrum[idx] = self.pilot_value
+        
+        self.data_indices = []
+        data_idx = 0
+        for i in range(self.total_carriers):
+            if i >= self.n_zeros and i < self.total_carriers - self.n_zeros:
+                if i not in self.pilot_indices:
+                    if data_idx < len(symbols):
+                        spectrum[i] = symbols[data_idx]
+                        self.data_indices.append(i)
+                        data_idx += 1
+        
+        time_signal = np.fft.ifft(spectrum)
+        cp = time_signal[-self.cp_len:]
+        ofdm_symbol = np.concatenate([cp, time_signal])
+        return ofdm_symbol
+\end{lstlisting}
+
+\section{Результат}
+При параметрах: $\Delta RS = 6$, $T_{CP} = 16$, $C = 0.25$, $N_{QPSK} = 285$:
+\begin{itemize}
+    \item $N_{RS} = 47$ опорных поднесущих
+    \item $N_2 = 83$ нулевых поднесущих
+    \item Общее количество поднесущих: 498
+    \item Длина OFDM символа: $498 + 16 = 514$ отсчетов
+\end{itemize}
+
+\section{Вывод}
+OFDM модулятор успешно реализован. Он формирует OFDM символ с учетом всех необходимых компонентов: опорные сигналы, информационные данные, нулевые поднесущие и циклический префикс.

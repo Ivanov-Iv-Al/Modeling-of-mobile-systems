@@ -1,0 +1,72 @@
+\chapter{Практика 4. QPSK модуляция}
+
+\section{Задание}
+Реализовать операцию QPSK модуляции битового сообщения и QPSK демодуляции символов.
+
+\section{Теоретическое описание}
+QPSK (Quadrature Phase Shift Keying) — метод фазовой модуляции, при котором фаза несущего сигнала принимает одно из четырех возможных значений. Каждому значению фазы соответствует пара бит (дибит). Скорость передачи символов в два раза ниже скорости передачи бит.
+
+Таблица QPSK модуляции:
+
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Дибит} & \textbf{I} & \textbf{Q} & \textbf{Символ} \\
+\hline
+00 & +0.707 & +0.707 & $0.707 + 0.707j$ \\
+01 & +0.707 & -0.707 & $0.707 - 0.707j$ \\
+10 & -0.707 & +0.707 & $-0.707 + 0.707j$ \\
+11 & -0.707 & -0.707 & $-0.707 - 0.707j$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Реализация}
+
+\begin{lstlisting}[language=Python, caption=QPSK модулятор и демодулятор]
+class Modulator:
+    def modulate(bits):
+        if not bits:
+            return []
+        if len(bits) % 2 != 0:
+            bits = bits + '0'
+        symbols = []
+        for i in range(0, len(bits), 2):
+            bit_pair = bits[i:i + 2]
+            if bit_pair == '00':
+                symbols.append(complex(0.707, 0.707))
+            elif bit_pair == '01':
+                symbols.append(complex(0.707, -0.707))
+            elif bit_pair == '10':
+                symbols.append(complex(-0.707, 0.707))
+            else:
+                symbols.append(complex(-0.707, -0.707))
+        return symbols
+
+class Demodulator:
+    def demodulate(symbols):
+        if not symbols:
+            return ""
+        bits = []
+        for symbol in symbols:
+            if symbol.real > 0 and symbol.imag > 0:
+                bits.append('00')
+            elif symbol.real > 0 and symbol.imag < 0:
+                bits.append('01')
+            elif symbol.real < 0 and symbol.imag > 0:
+                bits.append('10')
+            else:
+                bits.append('11')
+        return ''.join(bits)
+\end{lstlisting}
+
+\section{Результат}
+\begin{verbatim}
+QPSK модуляция:
+  До модуляции: 570 бит
+  После модуляции: 285 символов
+\end{verbatim}
+Демодуляция выполняется путем определения области комплексной плоскости, в которую попал принятый символ.
+
+\section{Вывод}
+QPSK модулятор и демодулятор успешно реализованы. При отсутствии шума демодуляция выполняется без ошибок.

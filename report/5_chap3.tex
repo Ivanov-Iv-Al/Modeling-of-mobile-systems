@@ -1,0 +1,53 @@
+\chapter{Практика 3. Перемежение}
+
+\section{Задание}
+Реализовать операцию прямого и обратного перемежения закодированного битового сообщения.
+
+\section{Теоретическое описание}
+Перемежение (interleaving) — это процесс перестановки битов в кодовом слове по определенному закону. Основная цель перемежения — борьба с пакетными ошибками. При возникновении пакетной ошибки в канале после обратного перемежения ошибки распределяются по всему кодовому слову, что позволяет эффективно исправлять их с помощью помехоустойчивого кода.
+
+\section{Реализация}
+Перемежитель использует псевдослучайную перестановку бит на основе заданного seed. Для обратного перемежения используется сохраненный закон перестановки.
+
+\begin{lstlisting}[language=Python, caption=Перемежитель и деперемежитель]
+class Interleaver:
+    def __init__(self, seed=42):
+        self.seed = seed
+        self.permutation = None
+
+    def interleave(self, bits):
+        if not bits:
+            return bits
+        np.random.seed(self.seed)
+        n = len(bits)
+        self.permutation = np.random.permutation(n)
+        interleaved = ['0'] * n
+        for i, pos in enumerate(self.permutation):
+            interleaved[pos] = bits[i]
+        return ''.join(interleaved)
+
+class Deinterleaver:
+    def __init__(self, interleaver):
+        self.permutation = interleaver.permutation
+
+    def deinterleave(self, bits):
+        if not bits or self.permutation is None:
+            return bits
+        n = len(bits)
+        deinterleaved = ['0'] * n
+        for i, pos in enumerate(self.permutation):
+            deinterleaved[i] = bits[pos]
+        return ''.join(deinterleaved)
+\end{lstlisting}
+
+\section{Результат}
+\begin{verbatim}
+Перемежение:
+  После перемежения: 570 бит
+  Первые 10 бит до перемежения: 1011000101
+  Первые 10 бит после перемежения: 0010111010
+\end{verbatim}
+При обратном перемежении битовая последовательность полностью восстанавливается.
+
+\section{Вывод}
+Перемежитель и деперемежитель успешно реализованы. Псевдослучайная перестановка бит позволяет бороться с пакетными ошибками.

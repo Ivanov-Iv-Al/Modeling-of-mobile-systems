@@ -1,0 +1,69 @@
+\chapter{Практика 6. Модель канала передачи}
+
+\section{Задание}
+Реализовать модель многолучевого канала с аддитивным белым гауссовым шумом.
+
+\section{Теоретическое описание}
+Модель многолучевого канала учитывает распространение сигнала по нескольким путям (лучам). Каждый луч характеризуется:
+\begin{itemize}
+    \item Задержкой $\tau_i$ относительно прямого луча
+    \item Ослаблением $G_i$, зависящим от расстояния
+\end{itemize}
+
+Задержка рассчитывается по формуле:
+\[
+\tau_i = \frac{D_i - D_1}{c \cdot T_s}, \quad i = 1, 2, \ldots, N_B
+\]
+
+Ослабление сигнала в вакууме:
+\[
+G_i = \frac{c}{4\pi D_i f_0}
+\]
+
+После суммирования всех лучей добавляется аддитивный белый гауссов шум (АБГШ) с заданной спектральной плотностью мощности $N_0$.
+
+\section{Реализация}
+
+\begin{lstlisting}[language=Python, caption=Модель многолучевого канала]
+class MultipathChannel:
+    def __init__(self, fc=2.4e9, bandwidth=9e6, num_paths=3, n0_db=-100):
+        self.fc = fc
+        self.bandwidth = bandwidth
+        self.num_paths = num_paths
+        self.n0_db = n0_db
+        self.c = 3e8
+        self.Ts = 1.0 / bandwidth
+
+    def propagate(self, tx_signal):
+        distances = np.random.uniform(10, 500, self.num_paths)
+        min_dist = np.min(distances)
+        delays = []
+        for d in distances:
+            tau = (d - min_dist) / (self.c * self.Ts)
+            delays.append(int(round(tau)))
+        gains = []
+        for d in distances:
+            gain = self.c / (4 * np.pi * d * self.fc)
+            gains.append(gain)
+        L = len(tx_signal)
+        rx_sum = np.zeros(L + max(delays), dtype=complex)
+        for i in range(self.num_paths):
+            shift = delays[i]
+            gain = gains[i]
+            shifted = np.zeros(L + shift, dtype=complex)
+            shifted[shift:] = tx_signal * gain
+            rx_sum[:len(shifted)] += shifted
+        rx_signal = rx_sum[:L]
+        n0_linear = 10 ** (self.n0_db / 10.0)
+        noise_power = n0_linear * self.bandwidth
+        noise_std = np.sqrt(noise_power / 2.0)
+        noise = noise_std * (np.random.randn(L) + 1j * np.random.randn(L))
+        rx_signal += noise
+        return rx_signal
+\end{lstlisting}
+
+\section{Результат}
+При количестве лучей $N_B = 3$ и мощности шума $N_0 = -100$ дБ сигнал на выходе канала имеет ту же длину, что и на входе, но содержит искажения от многолучевости и шума.
+
+\section{Вывод}
+Модель многолучевого канала с АБГШ успешно реализована. Она учитывает задержки и ослабления для каждого луча, а также аддитивный шум.

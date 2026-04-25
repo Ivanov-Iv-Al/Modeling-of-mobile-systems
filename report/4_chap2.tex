@@ -1,0 +1,83 @@
+\chapter{Практика 2. Помехоустойчивое кодирование}
+
+\section{Задание}
+Реализовать помехоустойчивое кодирование с использованием кода Хэмминга.
+
+\section{Теоретическое описание}
+Код Хэмминга — это линейный блочный код, позволяющий обнаруживать и исправлять одиночные ошибки. Для кода Хэмминга с $k$ информационными битами количество контрольных битов $m$ определяется из условия:
+\[
+2^m \geq k + m + 1
+\]
+Общая длина кодового слова: $n = k + m$. Контрольные биты располагаются на позициях, являющихся степенями двойки (1, 2, 4, 8, ...). Каждый контрольный бит вычисляется как XOR (сложение по модулю 2) информационных битов, номера позиций которых имеют единицу в соответствующем разряде двоичного представления.
+
+\section{Реализация}
+
+\begin{lstlisting}[language=Python, caption=Кодек Хэмминга]
+class HammingCoder:
+    def __init__(self, k_bits):
+        self.K = k_bits
+        self.m = 0
+        while (2 ** self.m) < (self.K + self.m + 1):
+            self.m += 1
+        self.N = self.K + self.m
+
+    def encode(self, bits):
+        if not bits:
+            return bits
+        remainder = len(bits) % self.K
+        if remainder:
+            bits = bits + '0' * (self.K - remainder)
+        encoded = []
+        for i in range(0, len(bits), self.K):
+            data = [int(b) for b in bits[i:i + self.K]]
+            codeword = [0] * self.N
+            data_idx = 0
+            for pos in range(1, self.N + 1):
+                if not (pos & (pos - 1) == 0):
+                    codeword[pos - 1] = data[data_idx]
+                    data_idx += 1
+            for j in range(self.m):
+                p_pos = 2 ** j
+                parity = 0
+                for pos in range(1, self.N + 1):
+                    if pos & p_pos:
+                        parity ^= codeword[pos - 1]
+                codeword[p_pos - 1] = parity
+            encoded.extend([str(b) for b in codeword])
+        return ''.join(encoded)
+
+    def decode(self, bits):
+        if not bits or len(bits) % self.N != 0:
+            return bits if not bits else None
+        decoded = []
+        for i in range(0, len(bits), self.N):
+            r = [int(b) for b in bits[i:i + self.N]]
+            syndrome = 0
+            for j in range(self.m):
+                p_pos = 2 ** j
+                parity = 0
+                for pos in range(1, self.N + 1):
+                    if pos & p_pos:
+                        parity ^= r[pos - 1]
+                if parity:
+                    syndrome += p_pos
+            if 0 < syndrome <= self.N:
+                r[syndrome - 1] ^= 1
+            for pos in range(1, self.N + 1):
+                if not (pos & (pos - 1) == 0):
+                    decoded.append(str(r[pos - 1]))
+        return ''.join(decoded)
+\end{lstlisting}
+
+\section{Результат}
+При использовании кода Хэмминга с 11 информационными битами:
+\begin{itemize}
+    \item Количество контрольных битов: $m = 4$
+    \item Длина кодового слова: $n = 15$
+    \item Скорость кодирования: $R = 11/15 \approx 0.733$
+\end{itemize}
+
+Исходное сообщение из 408 бит после кодирования занимает 570 бит.
+
+\section{Вывод}
+Код Хэмминга успешно реализован. Он позволяет исправлять одиночные ошибки, что повышает помехоустойчивость передачи данных.

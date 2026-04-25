@@ -1,0 +1,51 @@
+\babel@toc {russian}{}\relax 
+\contentsline {chapter}{\chapternumberline {1}Практика 1. Знаковое кодирование}{4}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Задание}{4}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Теоретическое описание}{4}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Реализация}{4}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Результат}{5}{section.1.4}%
+\contentsline {section}{\numberline {1.5}Вывод}{6}{section.1.5}%
+\contentsline {chapter}{\chapternumberline {2}Практика 2. Помехоустойчивое кодирование}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Задание}{7}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Теоретическое описание}{7}{section.2.2}%
+\contentsline {section}{\numberline {2.3}Реализация}{7}{section.2.3}%
+\contentsline {section}{\numberline {2.4}Результат}{9}{section.2.4}%
+\contentsline {section}{\numberline {2.5}Вывод}{9}{section.2.5}%
+\contentsline {chapter}{\chapternumberline {3}Практика 3. Перемежение}{10}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Задание}{10}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Теоретическое описание}{10}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Реализация}{10}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Результат}{11}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Вывод}{11}{section.3.5}%
+\contentsline {chapter}{\chapternumberline {4}Практика 4. QPSK модуляция}{12}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Задание}{12}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Теоретическое описание}{12}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Реализация}{12}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Результат}{13}{section.4.4}%
+\contentsline {section}{\numberline {4.5}Вывод}{13}{section.4.5}%
+\contentsline {chapter}{\chapternumberline {5}Практика 5. OFDM модуляция}{14}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Задание}{14}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Теоретическое описание}{14}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Реализация}{14}{section.5.3}%
+\contentsline {section}{\numberline {5.4}Результат}{16}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Вывод}{16}{section.5.5}%
+\contentsline {chapter}{\chapternumberline {6}Практика 6. Модель канала передачи}{17}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Задание}{17}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Теоретическое описание}{17}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Реализация}{17}{section.6.3}%
+\contentsline {section}{\numberline {6.4}Результат}{18}{section.6.4}%
+\contentsline {section}{\numberline {6.5}Вывод}{18}{section.6.5}%
+\contentsline {chapter}{\chapternumberline {7}Практика 7. Эквалайзирование и OFDM демодуляция}{19}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Задание}{19}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Теоретическое описание}{19}{section.7.2}%
+\contentsline {section}{\numberline {7.3}Реализация}{19}{section.7.3}%
+\contentsline {section}{\numberline {7.4}Результат}{20}{section.7.4}%
+\contentsline {section}{\numberline {7.5}Вывод}{20}{section.7.5}%
+\contentsline {chapter}{\chapternumberline {8}Практика 8. Расчет BER и построение графиков}{21}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Задание}{21}{section.8.1}%
+\contentsline {section}{\numberline {8.2}Теоретическое описание}{21}{section.8.2}%
+\contentsline {section}{\numberline {8.3}Реализация}{21}{section.8.3}%
+\contentsline {subsection}{\numberline {8.3.1}Расчет BER}{21}{subsection.8.3.1}%
+\contentsline {subsection}{\numberline {8.3.2}Построение графиков}{21}{subsection.8.3.2}%
+\contentsline {section}{\numberline {8.4}Результат}{23}{section.8.4}%
+\contentsline {section}{\numberline {8.5}Вывод}{23}{section.8.5}%

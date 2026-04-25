@@ -1,0 +1,57 @@
+\chapter{Практика 7. Эквалайзирование и OFDM демодуляция}
+
+\section{Задание}
+Реализовать OFDM демодуляцию, оценку АЧХ канала и эквалайзирование.
+
+\section{Теоретическое описание}
+Эквалайзер предназначен для компенсации искажений, внесенных каналом передачи. Основные этапы:
+
+\begin{enumerate}
+    \item \textbf{Удаление циклического префикса} — отбрасывание первых $T_{CP}$ отсчетов
+    \item \textbf{Прямое преобразование Фурье (FFT)} — переход в частотную область
+    \item \textbf{Извлечение опорных сигналов} — выделение пилот-символов
+    \item \textbf{Оценка АЧХ канала} — $H = R_{rx} / R_{tx}$
+    \item \textbf{Интерполяция} — линейная интерполяция $H$ на все поднесущие
+    \item \textbf{Эквалайзирование} — $C_{EQ} = C / H_{EQ}$
+\end{enumerate}
+
+\section{Реализация}
+
+\begin{lstlisting}[language=Python, caption=OFDM демодулятор с эквалайзером]
+class OfdmDemodulator:
+    def __init__(self, modulator):
+        self.delta_rs = modulator.delta_rs
+        self.cp_len = modulator.cp_len
+        self.pilot_value = modulator.pilot_value
+        self.pilot_indices = modulator.pilot_indices
+        self.data_indices = modulator.data_indices
+        self.n_qpsk = modulator.n_qpsk
+        self.n_zeros = modulator.n_zeros
+        self.total_carriers = modulator.total_carriers
+        
+    def demodulate(self, ofdm_signal):
+        time_signal = ofdm_signal[self.cp_len:self.cp_len + self.total_carriers]
+        spectrum = np.fft.fft(time_signal)
+        
+        rx_pilots = np.array([spectrum[idx] for idx in self.pilot_indices])
+        tx_pilots = np.array([self.pilot_value] * len(self.pilot_indices))
+        h_est = rx_pilots / tx_pilots
+        
+        all_data_indices = list(range(self.n_zeros, self.total_carriers - self.n_zeros))
+        h_full = np.interp(all_data_indices, self.pilot_indices, h_est)
+        heq = 1.0 / h_full
+        
+        recovered_symbols = []
+        for i, idx in enumerate(self.data_indices):
+            if idx < len(spectrum):
+                eq_idx = all_data_indices.index(idx) if idx in all_data_indices else i
+                if eq_idx < len(heq):
+                    recovered_symbols.append(spectrum[idx] * heq[eq_idx])
+        return np.array(recovered_symbols[:self.n_qpsk])
+\end{lstlisting}
+
+\section{Результат}
+После эквалайзирования искажения, внесенные многолучевым каналом, компенсируются. Восстановленные QPSK символы близки к переданным.
+
+\section{Вывод}
+OFDM демодулятор с эквалайзером успешно реализован. Оценка АЧХ канала по пилот-сигналам и последующая коррекция позволяют компенсировать искажения.

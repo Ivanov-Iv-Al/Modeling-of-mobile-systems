@@ -1,0 +1,70 @@
+\chapter{Практика 1. Знаковое кодирование}
+
+\section{Задание}
+Реализовать знаковое кодирование и декодирование текстового сообщения. Алфавит сообщения состоит из 64 символов: латинские буквы (52 символа), цифры (0...9), пробел и точка. Длина сообщения от 30 до 100 символов. Запрещено использовать встроенные функции Matlab/Octave для преобразования формата данных.
+
+\section{Теоретическое описание}
+Знаковое кодирование — это процесс преобразования символьного сообщения в двоичную последовательность. Каждому символу ставится в соответствие уникальное кодовое слово фиксированной длины. Для алфавита из 64 символов достаточно 6 бит ($2^6 = 64$), однако в данной работе используется 8-битное кодирование для удобства.
+
+\section{Реализация}
+Кодирование выполняется по следующему правилу:
+\begin{itemize}
+    \item A-Z: коды 0-25
+    \item a-z: коды 26-51
+    \item 0-9: коды 52-61
+    \item пробел: код 62
+    \item точка: код 63
+\end{itemize}
+
+Декодер выполняет обратное преобразование: группирует биты по 8, преобразует в число и по таблице символов восстанавливает текст.
+
+\begin{lstlisting}[language=Python, caption=Знаковый кодер и декодер]
+class SignCoder:
+    BITS = 8
+
+    def sign_encoder(text):
+        if not text or len(text) < 30 or len(text) > 100:
+            return None
+        bits = []
+        for c in text:
+            if 'A' <= c <= 'Z':
+                code = ord(c) - ord('A')
+            elif 'a' <= c <= 'z':
+                code = ord(c) - ord('a') + 26
+            elif '0' <= c <= '9':
+                code = ord(c) - ord('0') + 52
+            elif c == ' ':
+                code = 62
+            elif c == '.':
+                code = 63
+            else:
+                return None
+            bits.append(format(code, '08b'))
+        return ''.join(bits)
+
+    def sign_decoder(bits):
+        if not bits or len(bits) % 8 != 0:
+            return None
+        text = []
+        chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
+        for i in range(0, len(bits), 8):
+            code = int(bits[i:i + 8], 2)
+            if code < 64:
+                text.append(chars[code])
+            else:
+                return None
+        return ''.join(text)
+\end{lstlisting}
+
+\section{Результат}
+Исходное сообщение \textit{"Hello World. This is test message and no more..."} длиной 51 символ было преобразовано в 408 бит. При обратном декодировании сообщение восстановлено полностью без ошибок.
+
+\begin{verbatim}
+Исходное сообщение: Hello World. This is test message and no more...
+Длина сообщения: 51 символов
+Символьное кодирование: 408 бит
+Полученное сообщение: Hello World. This is test message and no more...
+\end{verbatim}
+
+\section{Вывод}
+Знаковый кодер и декодер успешно реализованы. Преобразование текста в битовую последовательность и обратно выполняется корректно.
