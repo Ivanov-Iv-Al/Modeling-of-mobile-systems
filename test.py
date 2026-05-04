@@ -397,6 +397,76 @@ def plot_constellations(tx_symbols, rx_symbols):
     plt.tight_layout()
     plt.show()
 
+def plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, tx_symbols, rx_symbols):
+
+    tx_spectrum = np.mean(np.abs(tx_grid), axis=1)
+    rx_spectrum_before = np.mean(np.abs(rx_grid_before), axis=1)
+    rx_spectrum_after = np.mean(np.abs(rx_grid_after), axis=1)
+
+    h_channel = rx_spectrum_before / (tx_spectrum + 1e-10)
+
+    fig = plt.figure(figsize=(16, 12))
+
+    ax1 = plt.subplot(2, 3, 1)
+    ax1.plot(tx_spectrum, 'b-', linewidth=2)
+    ax1.set_title('Спектр переданного OFDM символа')
+    ax1.set_xlabel('Индекс поднесущей')
+    ax1.set_ylabel('Амплитуда')
+    ax1.grid(True)
+    ax1.set_xlim(0, len(tx_spectrum) - 1)
+
+    ax2 = plt.subplot(2, 3, 2)
+    ax2.plot(rx_spectrum_before, 'r-', linewidth=2)
+    ax2.set_title('Спектр принятого OFDM символа (до эквалайзинга)')
+    ax2.set_xlabel('Индекс поднесущей')
+    ax2.set_ylabel('Амплитуда')
+    ax2.grid(True)
+    ax2.set_xlim(0, len(rx_spectrum_before) - 1)
+
+    ax3 = plt.subplot(2, 3, 3)
+    ax3.plot(rx_spectrum_after, 'g-', linewidth=2)
+    ax3.set_title('Спектр принятого OFDM символа (после эквалайзинга)')
+    ax3.set_xlabel('Индекс поднесущей')
+    ax3.set_ylabel('Амплитуда')
+    ax3.grid(True)
+    ax3.set_xlim(0, len(rx_spectrum_after) - 1)
+
+    ax4 = plt.subplot(2, 3, 4)
+    ax4.plot(h_channel, 'm-', linewidth=2)
+    ax4.set_title('Оценка АЧХ канала передачи')
+    ax4.set_xlabel('Индекс поднесущей')
+    ax4.set_ylabel('|H|')
+    ax4.grid(True)
+    ax4.set_xlim(0, len(h_channel) - 1)
+
+    ax5 = plt.subplot(2, 3, 5)
+    ax5.scatter([s.real for s in tx_symbols[:500]], [s.imag for s in tx_symbols[:500]],
+                s=15, alpha=0.6, c='blue', marker='o')
+    ax5.set_title('Сигнальное созвездие QPSK в передатчике')
+    ax5.set_xlabel('I')
+    ax5.set_ylabel('Q')
+    ax5.grid(True)
+    ax5.axis('equal')
+    ax5.set_xlim(-1.5, 1.5)
+    ax5.set_ylim(-1.5, 1.5)
+    ax5.axhline(y=0, color='k', linewidth=0.5)
+    ax5.axvline(x=0, color='k', linewidth=0.5)
+
+    ax6 = plt.subplot(2, 3, 6)
+    ax6.scatter([s.real for s in rx_symbols[:500]], [s.imag for s in rx_symbols[:500]],
+                s=15, alpha=0.6, c='red', marker='o')
+    ax6.set_title('Сигнальное созвездие QPSK в приёмнике')
+    ax6.set_xlabel('I')
+    ax6.set_ylabel('Q')
+    ax6.grid(True)
+    ax6.axis('equal')
+    ax6.set_xlim(-1.5, 1.5)
+    ax6.set_ylim(-1.5, 1.5)
+    ax6.axhline(y=0, color='k', linewidth=0.5)
+    ax6.axvline(x=0, color='k', linewidth=0.5)
+
+    plt.tight_layout()
+    plt.show()
 
 def main():
     msg = "Hello World. This is test message and no more..."
@@ -497,5 +567,6 @@ def main():
 
     plot_spectrums(tx_grid, rx_grid_before, rx_grid_after)
     plot_constellations(qpsk_symbols, recovered_symbols)
+    plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after,qpsk_symbols, recovered_symbols)
 
 main()
