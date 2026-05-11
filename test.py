@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from numpy.fft.helper import fftfreq
 
 
 class SignCoder:
@@ -29,18 +30,23 @@ class SignCoder:
         return ''.join(bits)
 
     def sign_decoder(bits):
-        if not bits or len(bits) % 8 != 0:
-            return None
+        if not bits:
+            return ""
+
+        remainder = len(bits) % 8
+        if remainder:
+            bits = bits + '0' * (8 - remainder)
 
         text = []
         chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
+        char_len = len(chars)
 
         for i in range(0, len(bits), 8):
-            code = int(bits[i:i + 8], 2)
-            if code < 64:
-                text.append(chars[code])
-            else:
-                return None
+            byte_str = bits[i:i + 8]
+            code = int(byte_str, 2)
+
+            safe_index = code % char_len
+            text.append(chars[safe_index])
 
         return ''.join(text)
 
@@ -226,7 +232,9 @@ class OFDMTransmitter:
                     grid[d_idx, i] = symbols[symbol_idx]
                     symbol_idx += 1
 
-        ofdm_time = np.fft.ifft(np.fft.ifftshift(grid, axes=0), axis=0) * np.sqrt(self.n_subcarriers)
+        #ofdm_time = np.fft.ifft(np.fft.fftshift(grid, axes=0), axis=0) * np.sqrt(self.n_subcarriers)
+        ofdm_time = np.fft.ifft(grid, axis=0) * np.sqrt(self.n_subcarriers)
+        print (pupupu[:5])
 
         cp = ofdm_time[-self.cp_len:, :]
         ofdm_with_cp = np.vstack([cp, ofdm_time])
@@ -250,8 +258,8 @@ class OFDMReceiver:
         rx_mat = signal[:n_symbols * sym_len].reshape(sym_len, n_symbols, order='F')
         rx_no_cp = rx_mat[self.cp_len:, :]
 
-        grid_rx = np.fft.fftshift(np.fft.fft(rx_no_cp, axis=0) / np.sqrt(self.n_subcarriers), axes=0)
-
+        #grid_rx = np.fft.fftshift(np.fft.fft(rx_no_cp, axis=0) / np.sqrt(self.n_subcarriers), axes=0)
+        grid_rx = np.fft.fft(rx_no_cp, axis=0) / np.sqrt(self.n_subcarriers)
         rx_pilots = np.array([grid_rx[idx, :] for idx in self.pilot_indices])
         tx_pilots = np.array([self.pilot_value] * len(self.pilot_indices))
 
@@ -443,6 +451,9 @@ def plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, tx_symbols, rx_symbo
     ax6.axhline(y=0, color='k', linewidth=0.5)
     ax6.axvline(x=0, color='k', linewidth=0.5)
 
+
+    plt.savefig('no_shift_plot.png')
+    #plt.savefig('shift_plot.png')
     plt.tight_layout()
     plt.show()
 
@@ -492,7 +503,7 @@ def plot_ber_vs_snr():
         ber_results.append(ber)
 
     plt.figure(figsize=(10, 6))
-    plt.semilogy(snr_range, ber_results, 'b-o', linewidth=2)
+    plt.plot(snr_range, ber_results, 'b-o', linewidth=2)
     plt.grid(True, which='both')
     plt.xlabel('SNR ')
     plt.ylabel('BER ')
@@ -551,7 +562,6 @@ def main():
     demodulated_bits = Demodulator.demodulate(recovered_symbols)
     print(f"QPSK демодуляция: {len(demodulated_bits)} бит")
 
-    # Обрезаем до нужной длины
     if len(demodulated_bits) > len(interleaved):
         demodulated_bits = demodulated_bits[:len(interleaved)]
     elif len(demodulated_bits) < len(interleaved):
@@ -570,21 +580,6 @@ def main():
     hamming_decoded = hamming_decoded[:len(encoded)]
     decoded = SignCoder.sign_decoder(hamming_decoded)
 
-    if decoded is None:
-        chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
-        decoded_chars = []
-        for i in range(0, len(hamming_decoded), 8):
-            if i + 8 <= len(hamming_decoded):
-                try:
-                    code = int(hamming_decoded[i:i + 8], 2)
-                    if code < 64:
-                        decoded_chars.append(chars[code])
-                    else:
-                        decoded_chars.append('?')
-                except:
-                    decoded_chars.append('?')
-        decoded = ''.join(decoded_chars)
-
     print(f"\nПолученное сообщение: {decoded}")
 
     ber, errors = calculate_ber(encoded, hamming_decoded)
@@ -600,5 +595,7 @@ def main():
     # plot_constellations(qpsk_symbols, recovered_symbols)
     plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after,qpsk_symbols, recovered_symbols)
     plot_ber_vs_snr()
+
+
 
 main()
