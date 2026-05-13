@@ -1,3 +1,67 @@
+def plot_ber_vs_snr():
+
+    snr_range = np.arange(0, 30, 2)
+    msg = "Hello World. This is test message and no more..."
+    
+    k_bits = 11
+    hamming_coder = HammingCoder(k_bits)
+    interleaver = Interleaver(seed=42)
+    deinterleaver = Deinterleaver(interleaver)
+    
+    ofdm_tx = OFDMTransmitter(n_subcarriers=64, cp_len=16, pilot_spacing=6)
+    ofdm_rx = OFDMReceiver(ofdm_tx)
+    
+    ber_results = []
+    
+    print("Вычисление BER для разных SNR...")
+    
+    for snr in snr_range:
+        print(f"  SNR = {snr} дБ...", end=" ", flush=True)
+        
+        # ДОБАВЛЯЕМ 30 ИТЕРАЦИЙ ДЛЯ УСРЕДНЕНИЯ
+        total_errors = 0
+        total_bits = 0
+        num_iterations = 30  # Количество итераций
+        
+        for iteration in range(num_iterations):
+            encoded = SignCoder.sign_encoder(msg)
+            hamming_encoded = hamming_coder.encode(encoded)
+            interleaved = interleaver.interleave(hamming_encoded)
+            qpsk_symbols = Modulator.modulate(interleaved)
+            ofdm_signal, _ = ofdm_tx.transmit(qpsk_symbols)
+            
+            channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=3, snr_db=snr)
+            received_signal = channel.propagate(ofdm_signal)
+            
+            recovered_symbols, _, _ = ofdm_rx.receive(received_signal)
+            recovered_symbols = recovered_symbols[:len(qpsk_symbols)]
+            demodulated_bits = Demodulator.demodulate(recovered_symbols)
+            
+            if len(demodulated_bits) > len(interleaved):
+                demodulated_bits = demodulated_bits[:len(interleaved)]
+            else:
+                demodulated_bits = demodulated_bits.ljust(len(interleaved), '0')
+            
+            deinterleaved = deinterleaver.deinterleave(demodulated_bits)
+            hamming_decoded = hamming_coder.decode(deinterleaved)
+            hamming_decoded = hamming_decoded[:len(encoded)]
+            
+            errors, _ = calculate_ber(encoded, hamming_decoded)
+            total_errors += errors * len(encoded)
+            total_bits += len(encoded)
+        
+        avg_ber = total_errors / total_bits
+        ber_results.append(avg_ber)
+        print(f"BER = {avg_ber:.6f}")
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(snr_range, ber_results, 'b-o', linewidth=2)
+    plt.grid(True, which='both')
+    plt.xlabel('SNR (дБ)')
+    plt.ylabel('BER')
+    plt.title('Зависимость BER от SNR (усреднение по 30 итерациям)')
+    plt.yscale('log')
+    plt.show()
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.fft.helper import fftfreq
