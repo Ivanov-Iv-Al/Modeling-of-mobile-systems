@@ -1,4 +1,7 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from numpy.fft.helper import fftfreq
+
 
 class SignCoder:
     BITS = 8
@@ -27,31 +30,38 @@ class SignCoder:
         return ''.join(bits)
 
     def sign_decoder(bits):
-        if not bits or len(bits) % 8 != 0:
-            return None
+        if not bits:
+            return ""
+
+        remainder = len(bits) % 8
+        if remainder:
+            bits = bits + '0' * (8 - remainder)
 
         text = []
         chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .'
+        char_len = len(chars)
 
         for i in range(0, len(bits), 8):
-            code = int(bits[i:i + 8], 2)
-            if code < 64:
-                text.append(chars[code])
-            else:
-                return None
+            byte_str = bits[i:i + 8]
+            code = int(byte_str, 2)
+
+            safe_index = code % char_len
+            text.append(chars[safe_index])
 
         return ''.join(text)
+
 
 class HammingCoder:
     def __init__(self, k_bits):
         self.K = k_bits
         self.m = 0
-        while (2**self.m) < (self.K + self.m + 1):
+        while (2 ** self.m) < (self.K + self.m + 1):
             self.m += 1
         self.N = self.K + self.m
 
     def encode(self, bits):
-        if not bits: return bits
+        if not bits:
+            return bits
         remainder = len(bits) % self.K
         if remainder:
             bits = bits + '0' * (self.K - remainder)
@@ -62,51 +72,59 @@ class HammingCoder:
             data_idx = 0
             for pos in range(1, self.N + 1):
                 if not (pos & (pos - 1) == 0):
-                    codeword[pos-1] = data[data_idx]
+                    codeword[pos - 1] = data[data_idx]
                     data_idx += 1
             for j in range(self.m):
-                p_pos = 2**j
+                p_pos = 2 ** j
                 parity = 0
                 for pos in range(1, self.N + 1):
                     if pos & p_pos:
-                        parity ^= codeword[pos-1]
-                codeword[p_pos-1] = parity
+                        parity ^= codeword[pos - 1]
+                codeword[p_pos - 1] = parity
             encoded.extend([str(b) for b in codeword])
         return ''.join(encoded)
 
     def decode(self, bits):
-        if not bits or len(bits) % self.N != 0:
-            return bits if not bits else None
+        if not bits:
+            return None
+        working_bits = bits
+        remainder = len(working_bits) % self.N
+        if remainder:
+            working_bits = working_bits + '0' * (self.N - remainder)
+
         decoded = []
-        for i in range(0, len(bits), self.N):
-            r = [int(b) for b in bits[i:i + self.N]]
+        for i in range(0, len(working_bits), self.N):
+            r = [int(b) for b in working_bits[i:i + self.N]]
             syndrome = 0
             for j in range(self.m):
-                p_pos = 2**j
+                p_pos = 2 ** j
                 parity = 0
                 for pos in range(1, self.N + 1):
                     if pos & p_pos:
-                        parity ^= r[pos-1]
+                        parity ^= r[pos - 1]
                 if parity:
                     syndrome += p_pos
             if 0 < syndrome <= self.N:
-                r[syndrome-1] ^= 1
+                r[syndrome - 1] ^= 1
             for pos in range(1, self.N + 1):
                 if not (pos & (pos - 1) == 0):
-                    decoded.append(str(r[pos-1]))
+                    decoded.append(str(r[pos - 1]))
         return ''.join(decoded)
 
+
 class Modulator:
+    @staticmethod
     def modulate(bits):
-        if not bits:
+        if bits is None or len(bits) == 0:
             return []
 
-        if len(bits) % 2 != 0:
-            bits = bits + '0'
+        working_bits = bits
+        if len(working_bits) % 2 != 0:
+            working_bits = working_bits + '0'
 
         symbols = []
-        for i in range(0, len(bits), 2):
-            bit_pair = bits[i:i + 2]
+        for i in range(0, len(working_bits), 2):
+            bit_pair = working_bits[i:i + 2]
 
             if bit_pair == '00':
                 symbols.append(complex(0.707, 0.707))
@@ -121,17 +139,27 @@ class Modulator:
 
 
 class Demodulator:
+    @staticmethod
     def demodulate(symbols):
-        if not symbols:
+        if symbols is None or len(symbols) == 0:
             return ""
 
         bits = []
         for symbol in symbols:
-            if symbol.real > 0 and symbol.imag > 0:
+
+            real_part = symbol.real
+            imag_part = symbol.imag
+
+            norm = np.sqrt(real_part ** 2 + imag_part ** 2)
+            if norm > 0:
+                real_part = real_part / norm
+                imag_part = imag_part / norm
+
+            if real_part > 0 and imag_part > 0:
                 bits.append('00')
-            elif symbol.real > 0 and symbol.imag < 0:
+            elif real_part > 0 and imag_part < 0:
                 bits.append('01')
-            elif symbol.real < 0 and symbol.imag > 0:
+            elif real_part < 0 and imag_part > 0:
                 bits.append('10')
             else:
                 bits.append('11')
@@ -175,89 +203,417 @@ class Deinterleaver:
 
         return ''.join(deinterleaved)
 
-def add_channel_noise(symbols, noise_level=0.1):
-    noisy_symbols = []
-    for symbol in symbols:
-        noise_real = np.random.normal(0, noise_level)
-        noise_imag = np.random.normal(0, noise_level)
-        noisy_symbols.append(complex(symbol.real + noise_real, symbol.imag + noise_imag))
-    return noisy_symbols
+
+class OFDMTransmitter:
+    def __init__(self, n_subcarriers=64, cp_len=16, pilot_spacing=6, pilot_value=complex(0.707, 0.707)):
+        self.n_subcarriers = n_subcarriers
+        self.cp_len = cp_len
+        self.pilot_spacing = pilot_spacing
+        self.pilot_value = pilot_value
+        self.pilot_indices = list(range(0, n_subcarriers, pilot_spacing))
+        self.data_indices = [i for i in range(n_subcarriers) if i not in self.pilot_indices]
+
+    def transmit(self, symbols):
+        n_data_per_symbol = len(self.data_indices)
+        n_symbols = len(symbols) // n_data_per_symbol
+        if len(symbols) % n_data_per_symbol != 0:
+            n_symbols += 1
+
+        grid = np.zeros((self.n_subcarriers, n_symbols), dtype=complex)
+
+        for i in range(n_symbols):
+            for p_idx in self.pilot_indices:
+                grid[p_idx, i] = self.pilot_value
+
+        symbol_idx = 0
+        for i in range(n_symbols):
+            for d_idx in self.data_indices:
+                if symbol_idx < len(symbols):
+                    grid[d_idx, i] = symbols[symbol_idx]
+                    symbol_idx += 1
+
+        #ofdm_time = np.fft.ifft(np.fft.fftshift(grid, axes=0), axis=0) * np.sqrt(self.n_subcarriers)
+        ofdm_time = np.fft.ifft(grid, axis=0) * np.sqrt(self.n_subcarriers)
+
+        cp = ofdm_time[-self.cp_len:, :]
+        ofdm_with_cp = np.vstack([cp, ofdm_time])
+
+        return ofdm_with_cp.reshape(-1, order='F'), grid
+
+
+class OFDMReceiver:
+    def __init__(self, transmitter):
+        self.n_subcarriers = transmitter.n_subcarriers
+        self.cp_len = transmitter.cp_len
+        self.pilot_spacing = transmitter.pilot_spacing
+        self.pilot_value = transmitter.pilot_value
+        self.pilot_indices = transmitter.pilot_indices
+        self.data_indices = transmitter.data_indices
+
+    def receive(self, signal):
+        sym_len = self.n_subcarriers + self.cp_len
+        n_symbols = len(signal) // sym_len
+
+        rx_mat = signal[:n_symbols * sym_len].reshape(sym_len, n_symbols, order='F')
+        rx_no_cp = rx_mat[self.cp_len:, :]
+
+        #grid_rx = np.fft.fftshift(np.fft.fft(rx_no_cp, axis=0) / np.sqrt(self.n_subcarriers), axes=0)
+        grid_rx = np.fft.fft(rx_no_cp, axis=0) / np.sqrt(self.n_subcarriers)
+        rx_pilots = np.array([grid_rx[idx, :] for idx in self.pilot_indices])
+        tx_pilots = np.array([self.pilot_value] * len(self.pilot_indices))
+
+        h_est = rx_pilots / tx_pilots[:, np.newaxis]
+        h_est_mean = np.mean(h_est, axis=1)
+
+        grid_eq = np.zeros_like(grid_rx)
+
+        all_indices = np.arange(self.n_subcarriers)
+
+        h_full = np.interp(all_indices, self.pilot_indices, h_est_mean)
+
+        grid_eq = grid_rx / h_full[:, np.newaxis]
+
+        symbols = []
+        for i in range(grid_eq.shape[1]):
+            for d_idx in self.data_indices:
+                if d_idx < len(grid_eq):
+                    symbols.append(grid_eq[d_idx, i])
+
+        return np.array(symbols), grid_rx, grid_eq
+
+
+class MultipathChannel:
+    def __init__(self, fc=2.4e9, bandwidth=9e6, num_paths=3, snr_db=20):
+        self.fc = fc
+        self.bandwidth = bandwidth
+        self.num_paths = num_paths
+        self.snr_db = snr_db
+        self.c = 3e8
+        self.Ts = 1.0 / bandwidth
+
+    def propagate(self, tx_signal):
+        if len(tx_signal) == 0:
+            return tx_signal
+
+        distances = np.random.uniform(10, 500, self.num_paths)
+        min_dist = np.min(distances)
+
+        delays = []
+        for d in distances:
+            tau = (d - min_dist) / (self.c * self.Ts)
+            delays.append(int(round(tau)))
+
+        gains = [self.c / (4 * np.pi * d * self.fc) for d in distances]
+
+        max_delay = max(delays)
+        L = len(tx_signal)
+        rx_sum = np.zeros(L + max_delay, dtype=complex)
+
+        for i in range(self.num_paths):
+            shift = delays[i]
+            gain = gains[i]
+            shifted = np.zeros(L + shift, dtype=complex)
+            shifted[shift:] = tx_signal * gain
+            if len(shifted) > len(rx_sum):
+                shifted = shifted[:len(rx_sum)]
+            rx_sum[:len(shifted)] += shifted
+
+        rx_signal = rx_sum[:L]
+
+        signal_power = np.mean(np.abs(rx_signal) ** 2)
+        snr_linear = 10 ** (self.snr_db / 10)
+        noise_power = signal_power / snr_linear
+        noise_std = np.sqrt(noise_power / 2)
+        noise = noise_std * (np.random.randn(L) + 1j * np.random.randn(L))
+
+        return rx_signal + noise
+
+
+def calculate_ber(tx_bits, rx_bits):
+    if len(tx_bits) != len(rx_bits):
+        min_len = min(len(tx_bits), len(rx_bits))
+        tx_bits = tx_bits[:min_len]
+        rx_bits = rx_bits[:min_len]
+
+    errors = sum(1 for i in range(len(tx_bits)) if tx_bits[i] != rx_bits[i])
+    return errors / len(tx_bits) if len(tx_bits) > 0 else 0, errors
+
+
+def plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, tx_symbols, rx_symbols):
+
+    tx_spectrum = np.mean(np.abs(tx_grid), axis=1)
+    rx_spectrum_before = np.mean(np.abs(rx_grid_before), axis=1)
+    rx_spectrum_after = np.mean(np.abs(rx_grid_after), axis=1)
+
+    h_channel = rx_spectrum_before / (tx_spectrum + 1e-10)
+
+    fig = plt.figure(figsize=(16, 12))
+
+    ax1 = plt.subplot(2, 3, 1)
+    ax1.plot(tx_spectrum, 'b-', linewidth=2)
+    ax1.set_title('Спектр переданного OFDM символа')
+    ax1.set_xlabel('Индекс поднесущей')
+    ax1.set_ylabel('Амплитуда')
+    ax1.grid(True)
+    ax1.set_xlim(0, len(tx_spectrum) - 1)
+
+    ax2 = plt.subplot(2, 3, 2)
+    ax2.plot(rx_spectrum_before, 'r-', linewidth=2)
+    ax2.set_title('Спектр принятого OFDM символа (до эквалайзинга)')
+    ax2.set_xlabel('Индекс поднесущей')
+    ax2.set_ylabel('Амплитуда')
+    ax2.grid(True)
+    ax2.set_xlim(0, len(rx_spectrum_before) - 1)
+
+    ax3 = plt.subplot(2, 3, 3)
+    ax3.plot(rx_spectrum_after, 'g-', linewidth=2)
+    ax3.set_title('Спектр принятого OFDM символа (после эквалайзинга)')
+    ax3.set_xlabel('Индекс поднесущей')
+    ax3.set_ylabel('Амплитуда')
+    ax3.grid(True)
+    ax3.set_xlim(0, len(rx_spectrum_after) - 1)
+
+    ax4 = plt.subplot(2, 3, 4)
+    ax4.plot(h_channel, 'm-', linewidth=2)
+    ax4.set_title('Оценка АЧХ канала передачи')
+    ax4.set_xlabel('Индекс поднесущей')
+    ax4.set_ylabel('|H|')
+    ax4.grid(True)
+    ax4.set_xlim(0, len(h_channel) - 1)
+
+    ax5 = plt.subplot(2, 3, 5)
+    ax5.scatter([s.real for s in tx_symbols[:500]], [s.imag for s in tx_symbols[:500]],
+                s=15, alpha=0.6, c='blue', marker='o')
+    ax5.set_title('Сигнальное созвездие QPSK в передатчике')
+    ax5.set_xlabel('I')
+    ax5.set_ylabel('Q')
+    ax5.grid(True)
+    ax5.axis('equal')
+    ax5.set_xlim(-1.5, 1.5)
+    ax5.set_ylim(-1.5, 1.5)
+    ax5.axhline(y=0, color='k', linewidth=0.5)
+    ax5.axvline(x=0, color='k', linewidth=0.5)
+
+    ax6 = plt.subplot(2, 3, 6)
+    ax6.scatter([s.real for s in rx_symbols[:500]], [s.imag for s in rx_symbols[:500]],
+                s=15, alpha=0.6, c='red', marker='o')
+    ax6.set_title('Сигнальное созвездие QPSK в приёмнике')
+    ax6.set_xlabel('I')
+    ax6.set_ylabel('Q')
+    ax6.grid(True)
+    ax6.axis('equal')
+    ax6.set_xlim(-1.5, 1.5)
+    ax6.set_ylim(-1.5, 1.5)
+    ax6.axhline(y=0, color='k', linewidth=0.5)
+    ax6.axvline(x=0, color='k', linewidth=0.5)
+
+
+    plt.savefig('no_shift_plot.png')
+    #plt.savefig('shift_plot.png')
+    plt.tight_layout()
+    plt.show()
+
+
+def calculate_average_ber(snr, msg, hamming_coder, interleaver, deinterleaver, ofdm_tx, ofdm_rx, num_iterations=100):
+    """Вычисляет средний BER для заданного SNR, выполняя num_iterations итераций"""
+    
+    encoded = SignCoder.sign_encoder(msg)
+    if not encoded:
+        return 1.0
+    
+    total_errors = 0
+    total_bits = 0
+    
+    for iteration in range(num_iterations):
+        # Кодирование и модуляция
+        hamming_encoded = hamming_coder.encode(encoded)
+        interleaved = interleaver.interleave(hamming_encoded)
+        qpsk_symbols = Modulator.modulate(interleaved)
+        
+        # Передача через OFDM
+        ofdm_signal, _ = ofdm_tx.transmit(qpsk_symbols)
+        
+        # Канал с заданным SNR
+        channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=3, snr_db=snr)
+        received_signal = channel.propagate(ofdm_signal)
+        
+        # Прием и демодуляция
+        recovered_symbols, _, _ = ofdm_rx.receive(received_signal)
+        recovered_symbols = recovered_symbols[:len(qpsk_symbols)]
+        
+        demodulated_bits = Demodulator.demodulate(recovered_symbols)
+        
+        # Выравнивание длины
+        if len(demodulated_bits) > len(interleaved):
+            demodulated_bits = demodulated_bits[:len(interleaved)]
+        else:
+            demodulated_bits = demodulated_bits.ljust(len(interleaved), '0')
+        
+        # Декодирование
+        deinterleaved = deinterleaver.deinterleave(demodulated_bits)
+        hamming_decoded = hamming_coder.decode(deinterleaved)
+        hamming_decoded = hamming_decoded[:len(encoded)]
+        
+        # Подсчет ошибок
+        errors, _ = calculate_ber(encoded, hamming_decoded)
+        total_errors += errors * len(encoded)
+        total_bits += len(encoded)
+    
+    return total_errors / total_bits
+
+
+def plot_ber_vs_snr():
+
+    snr_range = np.arange(0, 30, 2)  # от 0 до 30 дБ с шагом 2
+    msg = "Hello World. This is test message and no more..."
+    
+    # Инициализация кодеров
+    k_bits = 11
+    hamming_coder = HammingCoder(k_bits)
+    interleaver = Interleaver(seed=42)
+    deinterleaver = Deinterleaver(interleaver)
+    
+    # Инициализация OFDM
+    ofdm_tx = OFDMTransmitter(n_subcarriers=64, cp_len=16, pilot_spacing=6)
+    ofdm_rx = OFDMReceiver(ofdm_tx)
+    
+    ber_results = []
+    ber_std = []  # Стандартное отклонение для отображения ошибок
+    
+    print("Вычисление среднего BER для разных SNR...")
+    
+    for snr in snr_range:
+        print(f"  SNR = {snr} дБ...", end=" ", flush=True)
+        
+        # Вычисляем средний BER из 100 итераций
+        avg_ber = calculate_average_ber(snr, msg, hamming_coder, interleaver, 
+                                        deinterleaver, ofdm_tx, ofdm_rx, num_iterations=100)
+        ber_results.append(avg_ber)
+        ber_std.append(0)  # Можно добавить вычисление стандартного отклонения при необходимости
+        
+        print(f"BER = {avg_ber:.6f}")
+    
+    # Построение графика
+    plt.figure(figsize=(10, 6))
+    plt.semilogy(snr_range, ber_results, 'b-o', linewidth=2, markersize=6)
+    plt.grid(True, which='both', linestyle='--', alpha=0.7)
+    plt.xlabel('SNR (дБ)', fontsize=12)
+    plt.ylabel('BER', fontsize=12)
+    plt.title('Зависимость BER от SNR (усреднение по 100 итерациям)', fontsize=14)
+    plt.ylim([1e-6, 1])
+    plt.xlim([min(snr_range), max(snr_range)])
+    
+    # Добавление аннотаций для некоторых точек
+    for i, (snr, ber) in enumerate(zip(snr_range[::3], ber_results[::3])):
+        plt.annotate(f'{ber:.2e}', 
+                    xy=(snr, ber), 
+                    xytext=(10, 10), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig('ber_vs_snr_averaged.png', dpi=150)
+    plt.show()
+    
+    # Вывод статистики
+    print("\n=== Результаты усреднения ===")
+    for snr, ber in zip(snr_range, ber_results):
+        print(f"SNR = {snr:3d} дБ: BER = {ber:.2e}")
+    
+    return snr_range, ber_results
+
 
 def main():
     msg = "Hello World. This is test message and no more..."
     print(f"Исходное сообщение: {msg}\n")
-    print(f"Исходное сообщение(длительность): {len(msg) * 8}\n")
-
-    try:
-        user_input = input("Введите количество информационных бит: ")
-        k_bits = int(user_input) if user_input else 11
-
-    except ValueError:
-        print("Ошибка ввода.")
+    print(f"Длина сообщения: {len(msg)} символов")
 
     encoded = SignCoder.sign_encoder(msg)
     if not encoded:
         print("Ошибка кодирования")
         return
+    print(f"Символьное кодирование: {len(encoded)} бит")
 
-    print(f" Символьное кодирование:")
-    print(f"  Битовое представление: {len(encoded)} бит")
-    print(f"  Первые 30 бит: {encoded[:30]}...")
-
+    k_bits = 11
     hamming_coder = HammingCoder(k_bits)
     hamming_encoded = hamming_coder.encode(encoded)
-    print(f"\nКодирование Хэмминга ({k_bits} инф. бит):")
-    print(f"  Закодировано: {len(hamming_encoded)} бит")
-    print(f"  Первые 30 бит: {hamming_encoded[:30]}...")
+    print(f"Кодирование Хэмминга: {len(hamming_encoded)} бит")
 
     interleaver = Interleaver(seed=42)
     interleaved = interleaver.interleave(hamming_encoded)
-    print(f"\nПеремежение:")
+    print(f"Перемежение: {len(interleaved)} бит")
 
-    print(f"  После перемежения: {len(interleaved)} бит")
-    print(f"  Первые 10 бит: {interleaved[:10]}")
-    print(f"  Первые 10 бит до перемежения: {hamming_encoded[:10]}")
+    qpsk_symbols = Modulator.modulate(interleaved)
+    print(f"QPSK модуляция: {len(qpsk_symbols)} символов")
 
-    print(f"\nQPSK модуляция:")
-    print(f"  До модуляции: {len(interleaved)} бит")
-    modulated_symbols = Modulator.modulate(interleaved)
-    print(f"  После модуляции: {len(modulated_symbols)} символов")
-    print(f"  Первые 6 символов:")
-    for i, sym in enumerate(modulated_symbols[:6]):
-        print(f"    Символ {i + 1}: I={sym.real:.3f}, Q={sym.imag:.3f}j")
-        print(f" Битовое представление символа: {interleaved[i:i+2]}")
+    n_subcarriers = 64
+    cp_len = 16
+    pilot_spacing = 6
 
-    # print(f"\nКанал связи (добавление шума):")
-    # np.random.seed(42)
-    # noisy_symbols = add_channel_noise(modulated_symbols, noise_level=0.2)
-    # print(f"  Добавлен шум с уровнем 0.2")
-    # print(f"  Первые 3 символа после шума:")
-    # for i, sym in enumerate(noisy_symbols[:3]):
-    #     print(f"    Символ {i + 1}: I={sym.real:.3f}, Q={sym.imag:.3f}j")
+    ofdm_tx = OFDMTransmitter(
+        n_subcarriers=n_subcarriers,
+        cp_len=cp_len,
+        pilot_spacing=pilot_spacing
+    )
+    ofdm_signal, tx_grid = ofdm_tx.transmit(qpsk_symbols)
+    print(f"OFDM модуляция: {len(ofdm_signal)} отсчётов")
+    print(f"Количество поднесущих: {n_subcarriers}")
+    print(f"Пилоты: {len(ofdm_tx.pilot_indices)} (каждые {pilot_spacing})")
 
-    print(f"\nQPSK демодуляция:")
-    print(f"  До демодуляции: {len(modulated_symbols)} символов")
-    demodulated_bits = Demodulator.demodulate(modulated_symbols)
-    print(f"  После демодуляции: {len(demodulated_bits)} бит")
-    print(f"  Первые 30 бит: {demodulated_bits[:30]}...")
+    num_paths = 9
+    snr_db = 20
 
-    correct = sum(1 for i in range(len(interleaved)) if interleaved[i] == demodulated_bits[i])
-    print(f"  Совпадение бит: {correct}/{len(interleaved)} ")
+    channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=num_paths, snr_db=snr_db)
+    received_signal = channel.propagate(ofdm_signal)
+    print(f"\nМноголучевой канал: {num_paths} лучей, SNR = {snr_db} дБ")
+
+    ofdm_rx = OFDMReceiver(ofdm_tx)
+    recovered_symbols, rx_grid_before, rx_grid_after = ofdm_rx.receive(received_signal)
+    recovered_symbols = recovered_symbols[:len(qpsk_symbols)]
+    print(f"OFDM демодуляция с эквалайзингом: {len(recovered_symbols)} символов")
+
+    demodulated_bits = Demodulator.demodulate(recovered_symbols)
+    print(f"QPSK демодуляция: {len(demodulated_bits)} бит")
+
+    if len(demodulated_bits) > len(interleaved):
+        demodulated_bits = demodulated_bits[:len(interleaved)]
+    elif len(demodulated_bits) < len(interleaved):
+        demodulated_bits = demodulated_bits + '0' * (len(interleaved) - len(demodulated_bits))
 
     deinterleaver = Deinterleaver(interleaver)
     deinterleaved = deinterleaver.deinterleave(demodulated_bits)
-    print(f"\nДеинтерливинг:")
-    print(f"  После деинтерливинга: {len(deinterleaved)} бит")
+    print(f"Обратное перемежение: {len(deinterleaved)} бит")
 
     hamming_decoded = hamming_coder.decode(deinterleaved)
     if not hamming_decoded:
         print("Ошибка декодирования Хэмминга")
         return
+    print(f"Декодирование Хэмминга: {len(hamming_decoded)} бит")
 
-    print(f"\nДекодирование Хэмминга:")
-    print(f"  После декодирования: {len(hamming_decoded)} бит")
+    hamming_decoded = hamming_decoded[:len(encoded)]
+    decoded = SignCoder.sign_decoder(hamming_decoded)
 
-    decoded = SignCoder.sign_decoder(hamming_decoded[:len(encoded)])
-    print(f"Полученное сообщение: {decoded}")
+    print(f"\nПолученное сообщение: {decoded}")
 
-main()
+    ber, errors = calculate_ber(encoded, hamming_decoded)
+    print(f"\nBER (один проход): {ber:.6f}")
+    print(f"Ошибочных бит: {errors} из {len(encoded)}")
+
+    if decoded == msg:
+        print("\nСообщение декодировано успешно")
+    else:
+        print("\nОшибка при декодировании сообщения")
+
+    # Построение графиков
+    plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, qpsk_symbols, recovered_symbols)
+    
+    # Построение графика BER с усреднением по 100 итерациям
+    print("\n" + "="*50)
+    print("Построение графика BER c усреднением по 100 итерациям")
+    print("="*50)
+    plot_ber_vs_snr()
+
+
+if __name__ == "__main__":
+    main()
