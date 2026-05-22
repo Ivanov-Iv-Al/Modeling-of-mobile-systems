@@ -234,7 +234,6 @@ class OFDMTransmitter:
 
         #ofdm_time = np.fft.ifft(np.fft.fftshift(grid, axes=0), axis=0) * np.sqrt(self.n_subcarriers)
         ofdm_time = np.fft.ifft(grid, axis=0) * np.sqrt(self.n_subcarriers)
-        print (pupupu[:5])
 
         cp = ofdm_time[-self.cp_len:, :]
         ofdm_with_cp = np.vstack([cp, ofdm_time])
@@ -339,50 +338,6 @@ def calculate_ber(tx_bits, rx_bits):
     errors = sum(1 for i in range(len(tx_bits)) if tx_bits[i] != rx_bits[i])
     return errors / len(tx_bits) if len(tx_bits) > 0 else 0, errors
 
-
-# def plot_spectrums(tx_grid, rx_grid_before, rx_grid_after):
-#     plt.figure(figsize=(12, 8))
-#     plt.subplot(3, 1, 1)
-#     plt.plot(np.mean(np.abs(tx_grid), axis=1))
-#     plt.title('Спектр переданного OFDM символа')
-#     plt.xlabel('Индекс поднесущей')
-#     plt.ylabel('Амплитуда')
-#     plt.grid(True)
-#     plt.subplot(3, 1, 2)
-#     plt.plot(np.mean(np.abs(rx_grid_before), axis=1))
-#     plt.title('Спектр принятого OFDM символа до эквалайзинга')
-#     plt.xlabel('Индекс поднесущей')
-#     plt.ylabel('Амплитуда')
-#     plt.grid(True)
-#     plt.subplot(3, 1, 3)
-#     plt.plot(np.mean(np.abs(rx_grid_after), axis=1))
-#     plt.title('Спектр принятого OFDM символа после эквалайзинга')
-#     plt.xlabel('Индекс поднесущей')
-#     plt.ylabel('Амплитуда')
-#     plt.grid(True)
-#     plt.tight_layout()
-#     plt.show()
-#
-#
-# def plot_constellations(tx_symbols, rx_symbols):
-#     plt.figure(figsize=(12, 5))
-#     plt.subplot(1, 2, 1)
-#     plt.scatter([s.real for s in tx_symbols], [s.imag for s in tx_symbols], s=10, alpha=0.7)
-#     plt.title('Сигнальное созвездие QPSK в передатчике')
-#     plt.xlabel('I')
-#     plt.ylabel('Q')
-#     plt.grid(True)
-#     plt.axis('equal')
-#     plt.subplot(1, 2, 2)
-#     plt.scatter([s.real for s in rx_symbols], [s.imag for s in rx_symbols], s=10, alpha=0.7)
-#     plt.title('Сигнальное созвездие QPSK в приёмнике')
-#     plt.xlabel('I')
-#     plt.ylabel('Q')
-#     plt.grid(True)
-#     plt.axis('equal')
-#     plt.tight_layout()
-#     plt.show()
-
 def plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, tx_symbols, rx_symbols):
 
     tx_spectrum = np.mean(np.abs(tx_grid), axis=1)
@@ -459,55 +414,81 @@ def plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after, tx_symbols, rx_symbo
 
 
 def plot_ber_vs_snr():
-
-    snr_range = np.arange(0, 50, 2)
+    snr_range = np.arange(-30, 20, 5)
     msg = "Hello World. This is test message and no more..."
-    encoded = SignCoder.sign_encoder(msg)
-
-    k_bits = 11
-    hamming_coder = HammingCoder(k_bits)
-    interleaver = Interleaver(seed=42)
-    deinterleaver = Deinterleaver(interleaver)
-
-    ofdm_tx = OFDMTransmitter(n_subcarriers=64, cp_len=16, pilot_spacing=6)
-    ofdm_rx = OFDMReceiver(ofdm_tx)
 
     ber_results = []
+    num_runs = 100
 
     for snr in snr_range:
+        print(f"Обработка SNR = {snr} дБ...")
+        ber_sum = 0
 
-        hamming_encoded = hamming_coder.encode(encoded)
-        interleaved = interleaver.interleave(hamming_encoded)
+        for run in range(num_runs):
+            encoded = SignCoder.sign_encoder(msg)
+            if not encoded:
+                continue
 
-        qpsk_symbols = Modulator.modulate(interleaved)
-        ofdm_signal, _ = ofdm_tx.transmit(qpsk_symbols)
+            k_bits = 11
+            hamming_coder = HammingCoder(k_bits)
 
-        channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=3, snr_db=snr)
-        received_signal = channel.propagate(ofdm_signal)
+            seed_value = abs(run + snr * 100) % (2 ** 32)
+            interleaver = Interleaver(seed=seed_value)
 
-        recovered_symbols, _, _ = ofdm_rx.receive(received_signal)
-        recovered_symbols = recovered_symbols[:len(qpsk_symbols)]
+            hamming_encoded = hamming_coder.encode(encoded)
+            interleaved = interleaver.interleave(hamming_encoded)
 
-        demodulated_bits = Demodulator.demodulate(recovered_symbols)
+            qpsk_symbols = Modulator.modulate(interleaved)
 
-        if len(demodulated_bits) > len(interleaved):
-            demodulated_bits = demodulated_bits[:len(interleaved)]
-        else:
-            demodulated_bits = demodulated_bits.ljust(len(interleaved), '0')
+            ofdm_tx = OFDMTransmitter(n_subcarriers=64, cp_len=16, pilot_spacing=6)
+            ofdm_signal, _ = ofdm_tx.transmit(qpsk_symbols)
 
-        deinterleaved = deinterleaver.deinterleave(demodulated_bits)
-        hamming_decoded = hamming_coder.decode(deinterleaved)
-        hamming_decoded = hamming_decoded[:len(encoded)]
+            channel = MultipathChannel(fc=2.4e9, bandwidth=10e6, num_paths=3, snr_db=snr)
+            received_signal = channel.propagate(ofdm_signal)
 
-        ber, _ = calculate_ber(encoded, hamming_decoded)
-        ber_results.append(ber)
+            ofdm_rx = OFDMReceiver(ofdm_tx)
+            recovered_symbols, _, _ = ofdm_rx.receive(received_signal)
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(snr_range, ber_results, 'b-o', linewidth=2)
-    plt.grid(True, which='both')
-    plt.xlabel('SNR ')
-    plt.ylabel('BER ')
-    plt.title('Зависимость BER от SNR')
+            if len(recovered_symbols) > len(qpsk_symbols):
+                recovered_symbols = recovered_symbols[:len(qpsk_symbols)]
+
+            demodulated_bits = Demodulator.demodulate(recovered_symbols)
+
+            target_len = len(interleaved)
+            if len(demodulated_bits) < target_len:
+                demodulated_bits = demodulated_bits + '0' * (target_len - len(demodulated_bits))
+            elif len(demodulated_bits) > target_len:
+                demodulated_bits = demodulated_bits[:target_len]
+
+            deinterleaver = Deinterleaver(interleaver)
+            deinterleaved = deinterleaver.deinterleave(demodulated_bits)
+
+            hamming_decoded = hamming_coder.decode(deinterleaved)
+
+            if hamming_decoded:
+                if len(hamming_decoded) > len(encoded):
+                    hamming_decoded = hamming_decoded[:len(encoded)]
+                elif len(hamming_decoded) < len(encoded):
+                    hamming_decoded = hamming_decoded + '0' * (len(encoded) - len(hamming_decoded))
+
+                ber, errors = calculate_ber(encoded, hamming_decoded)
+                ber_sum += ber
+            else:
+                ber_sum += 1.0
+
+        avg_ber = ber_sum / num_runs
+        ber_results.append(avg_ber)
+        print(f"  Средний BER = {avg_ber:.6e}")
+
+    plt.figure(figsize=(12, 8))
+    plt.plot(snr_range, ber_results, 'b-o', linewidth=2, markersize=8)
+    plt.grid(True, which='both', linestyle='--', alpha=0.7)
+    plt.xlabel('SNR (дБ)', fontsize=12)
+    plt.ylabel('BER', fontsize=12)
+    plt.title('Зависимость BER от SNR (усреднено по 100 прогонам)', fontsize=14)
+    plt.yscale('log')
+    plt.xlim([snr_range[0], snr_range[-1]])
+    plt.tight_layout()
     plt.show()
 
 def main():
@@ -595,7 +576,5 @@ def main():
     # plot_constellations(qpsk_symbols, recovered_symbols)
     plot_all_in_one(tx_grid, rx_grid_before, rx_grid_after,qpsk_symbols, recovered_symbols)
     plot_ber_vs_snr()
-
-
 
 main()
